@@ -1,0 +1,90 @@
+export function pad2(n : number) : string {
+	return n < 10 ? '0' + n.toString() : n.toString()
+}
+
+export function getDateStr(ts : number) : string {
+	const d = new Date(ts)
+	return d.getFullYear().toString() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())
+}
+
+export function getTimeStr(ts : number) : string {
+	const d = new Date(ts)
+	return pad2(d.getHours()) + ':' + pad2(d.getMinutes())
+}
+
+export function getDateTimeStr(ts : number) : string {
+	return getDateStr(ts) + ' ' + getTimeStr(ts)
+}
+
+export function getMonthDayStr(ts : number) : string {
+	const d = new Date(ts)
+	return (d.getMonth() + 1).toString() + '/' + d.getDate().toString()
+}
+
+export function getStartOfDay(ts : number) : number {
+	const d = new Date(ts)
+	d.setHours(0, 0, 0, 0)
+	return d.getTime()
+}
+
+export function getEndOfDay(ts : number) : number {
+	return getStartOfDay(ts) + 86400000 - 1
+}
+
+export function getRelativeDay(ts : number) : string {
+	const today = getStartOfDay(Date.now())
+	const day = getStartOfDay(ts)
+	const diff = Math.round((today - day) / 86400000)
+	if (diff === 0) return '今天'
+	if (diff === 1) return '昨天'
+	if (diff === 2) return '前天'
+	return getDateStr(ts)
+}
+
+export function getGreeting() : string {
+	const h = new Date().getHours()
+	if (h < 6) return '夜深了，注意休息 🌙'
+	if (h < 11) return '早上好 ☀️'
+	if (h < 14) return '午安 🍼'
+	if (h < 18) return '下午好 🌤️'
+	if (h < 22) return '晚上好 🌆'
+	return '夜深了 🌙'
+}
+
+export function getWeekdayStr(ts : number) : string {
+	const w = new Date(ts).getDay()
+	const arr = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+	return arr[w]
+}
+
+export function getDaysFromBirth(birthdayTs : number, atTs : number) : number {
+	if (birthdayTs <= 0) return 0
+	const birth = getStartOfDay(birthdayTs)
+	const at = getStartOfDay(atTs)
+	const diff = at - birth
+	if (diff < 0) return 0
+	return Math.floor(diff / 86400000) + 1
+}
+
+export function getBabyAgeStr(birthdayTs : number, atTs : number) : string {
+	if (birthdayTs <= 0) return ''
+	const days = getDaysFromBirth(birthdayTs, atTs)
+	if (days <= 0) return ''
+	if (days <= 30) return '出生第 ' + days.toString() + ' 天'
+	const months = Math.floor(days / 30)
+	const rem = days - months * 30
+	if (rem === 0) return months.toString() + ' 个月'
+	return months.toString() + ' 个月 ' + rem.toString() + ' 天'
+}
+
+export function parseDateTime(date : string, time : string) : number {
+	const parts = date.split('-')
+	const timeParts = time.split(':')
+	const year = parseInt(parts[0])
+	const month = parseInt(parts[1]) - 1
+	const day = parseInt(parts[2])
+	const hour = parseInt(timeParts[0])
+	const min = parseInt(timeParts[1])
+	const d = new Date(year, month, day, hour, min, 0, 0)
+	return d.getTime()
+}

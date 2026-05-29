@@ -1,0 +1,866 @@
+<template>
+	<view class="page">
+			<view class="hero">
+				<view class="hero-inner">
+					<view class="hero-top">
+						<view class="hero-greeting-wrap">
+							<text class="greeting">{{ currentBabyName }}</text>
+							<text class="hero-date">{{ todayDate }} {{ todayWeekday }}<text class="baby-badge-text" v-if="babyAgeStr.length > 0"> · {{ babyAgeStr }}</text></text>
+						</view>
+						<view class="hero-actions">
+							<view class="switch-btn" v-if="settings.babies.length >= 2" @click="onSwitchBaby" hover-class="settings-btn-hover">
+								<text class="switch-icon">🔄</text>
+							</view>
+							<view class="lullaby-btn" @click="onLullabyTap" @longpress="onLullabyLongPress" hover-class="settings-btn-hover">
+								<text class="settings-icon">{{ isPlayingLullaby ? '⏸' : '🎵' }}</text>
+							</view>
+							<view class="settings-btn" @click="goSettings" hover-class="settings-btn-hover">
+								<text class="settings-icon">⚙️</text>
+							</view>
+						</view>
+					</view>
+				</view>
+			</view>
+
+			<view class="stats-section">
+				<view class="stat-grid">
+					<stat-card icon="🍼" :value="totalMilk.toString()" unit="ml" label="今日总奶量" bgColor="#FF9AA2" />
+					<stat-card icon="🔁" :value="feedCount.toString()" unit="次" label="喂奶次数" bgColor="#FFB7B2" />
+					<stat-card icon="🌡️" :value="lastTempStr" unit="°C" label="最近体温" bgColor="#FFC785" />
+					<stat-card icon="💧" :value="peeCount.toString() + '/' + pooCount.toString()" unit="次" label="小便/大便"
+						bgColor="#9ED5C5" />
+				</view>
+			</view>
+
+			<view class="info-card" v-if="settings.supplements.length > 0">
+				<view class="info-left">
+					<text class="info-icon">💊</text>
+					<view class="info-text">
+						<text class="info-title">今日补充剂</text>
+						<text
+							class="info-sub">{{ todaySuppList.length > 0 ? '已记 ' + todaySuppList.length + ' 项' : '尚未补充' }}</text>
+					</view>
+				</view>
+				<view class="info-right">
+					<view v-if="todaySuppList.length > 0" class="supp-mini-row">
+						<view class="supp-mini" v-for="s in todaySuppList" :key="s.id"
+							:style="'background-color:' + s.color">
+							<text class="supp-mini-text">{{ s.name }}</text>
+						</view>
+					</view>
+					<view v-else class="badge" :style="'background-color:#E0E0E0'">
+						<text class="badge-text">未补充</text>
+					</view>
+				</view>
+			</view>
+
+			<view class="section-header">
+				<text class="section-title">今日记录</text>
+				<text class="section-count">{{ todayRecords.length }} 条</text>
+			</view>
+
+		<scroll-view class="scroll-area" scroll-y="true">
+			<view class="empty" v-if="todayRecords.length === 0">
+				<text class="empty-icon">📝</text>
+				<text class="empty-text">今天还没有记录</text>
+				<text class="empty-hint">点击底部 ＋ 添加第一条</text>
+			</view>
+
+			<view class="record-list" v-else>
+				<view class="record-card" v-for="rec in todayRecords" :key="rec.id" @click="goEdit(rec.id)">
+					<view class="record-time-col">
+						<text class="record-day" v-if="currentBabyBirthday > 0">{{ daysAt(rec.timestamp) }}天</text>
+						<text class="record-time">{{ formatTime(rec.timestamp) }}</text>
+						<text class="record-interval" v-if="intervalOf(rec.id).length > 0">⏱ {{ intervalOf(rec.id) }}</text>
+					</view>
+					<view class="record-main">
+						<view class="record-row1">
+							<text class="record-milk" v-if="rec.milk > 0">🍼 {{ rec.milk }}ml</text>
+							<text class="record-temp" v-if="rec.temperature > 0">🌡️ {{ rec.temperature.toFixed(1) }}°C</text>
+							<text class="record-temp" v-if="rec.height > 0">📏 {{ rec.height.toFixed(1) }}cm</text>
+							<text class="record-temp" v-if="rec.weight > 0">⚖️ {{ rec.weight.toFixed(1) }}kg</text>
+							<text class="record-placeholder" v-if="rec.milk === 0 && rec.temperature === 0 && rec.height === 0 && rec.weight === 0">—</text>
+						</view>
+						<view class="record-tags" v-if="hasAnyTag(rec)">
+							<view class="tag" v-for="sid in rec.supplementIds" :key="sid"
+								:style="'background-color:' + getSuppColor(sid)">
+								<text class="tag-text">{{ getSuppLabel(sid) }}</text>
+							</view>
+							<view class="tag tag-yellow" v-if="rec.pee">
+								<text class="tag-text">💧 小便</text>
+							</view>
+							<view class="tag tag-brown" v-if="rec.poo">
+								<text class="tag-text">💩 大便</text>
+							</view>
+						</view>
+						<text class="record-note" v-if="rec.note.length > 0">📝 {{ rec.note }}</text>
+					</view>
+					<text class="record-arrow">›</text>
+				</view>
+			</view>
+
+			<view class="bottom-pad"></view>
+		</scroll-view>
+		<custom-tabbar active="today" />
+
+		<view class="lullaby-sheet-mask" v-if="showLullabyPicker" @click="closeLullabyPicker">
+			<view class="lullaby-sheet" @click.stop>
+				<view class="lullaby-sheet-header">
+					<text class="lullaby-sheet-title">哄睡音频</text>
+					<text class="lullaby-sheet-sub">点击选项开始循环播放，再次点击停止</text>
+				</view>
+
+				<view class="lullaby-row" @click="pickAudio('shush')" hover-class="lullaby-row-hover">
+					<text class="lullaby-row-icon">🌬</text>
+					<view class="lullaby-row-text">
+						<text class="lullaby-row-name">嘘嘘声</text>
+						<text class="lullaby-row-desc">模拟妈妈的"嘘嘘"安抚声</text>
+					</view>
+					<text class="lullaby-row-state" v-if="isPlayingLullaby && playerSource === 'shush'">▶ 播放中</text>
+				</view>
+
+				<view class="lullaby-row" @click="pickAudio('womb')" hover-class="lullaby-row-hover">
+					<text class="lullaby-row-icon">👶</text>
+					<view class="lullaby-row-text">
+						<text class="lullaby-row-name">母体子宫音</text>
+						<text class="lullaby-row-desc">模拟子宫内白噪音</text>
+					</view>
+					<text class="lullaby-row-state" v-if="isPlayingLullaby && playerSource === 'womb'">▶ 播放中</text>
+				</view>
+
+				<view class="lullaby-row" @click="pickAudio('custom')" hover-class="lullaby-row-hover">
+					<text class="lullaby-row-icon">🎙</text>
+					<view class="lullaby-row-text">
+						<text class="lullaby-row-name">自定义录音</text>
+						<text class="lullaby-row-desc">{{ settings.lullabyPath.length > 0 ? '使用你录制的音频' : '尚未录制 · 点击去录' }}</text>
+					</view>
+					<text class="lullaby-row-state" v-if="isPlayingLullaby && playerSource === 'custom'">▶ 播放中</text>
+				</view>
+
+				<view class="lullaby-cancel" @click="closeLullabyPicker" hover-class="lullaby-row-hover">
+					<text class="lullaby-cancel-text">{{ isPlayingLullaby ? '后台播放并关闭' : '取消' }}</text>
+				</view>
+			</view>
+		</view>
+	</view>
+</template>
+
+<script setup lang="uts">
+	import { loadRecords, loadSettings, saveSettings, findSupplement, getCurrentBaby, FeedingRecord, Settings, Supplement, Baby } from '@/utils/db.uts'
+	import { getDateStr, getTimeStr, getStartOfDay, getEndOfDay, getWeekdayStr, getBabyAgeStr, getDaysFromBirth, pad2 } from '@/utils/format.uts'
+
+	const allRecords = ref<FeedingRecord[]>([] as FeedingRecord[])
+	const settings = ref<Settings>(loadSettings())
+	const todayDate = ref<string>(getDateStr(Date.now()))
+	const todayWeekday = ref<string>(getWeekdayStr(Date.now()))
+
+	const currentBaby = computed<Baby | null>(() : Baby | null => getCurrentBaby(settings.value))
+
+	const currentBabyName = computed<string>(() : string => {
+		const b = currentBaby.value
+		return b != null ? b.name : '宝宝'
+	})
+
+	const currentBabyBirthday = computed<number>(() : number => {
+		const b = currentBaby.value
+		return b != null ? b.birthday : 0
+	})
+
+	const babyAgeStr = computed<string>(() : string => {
+		return getBabyAgeStr(currentBabyBirthday.value, Date.now())
+	})
+
+	function onSwitchBaby() : void {
+		const items : string[] = []
+		settings.value.babies.forEach((b : Baby) => {
+			const mark = b.id === settings.value.currentBabyId ? ' (当前)' : ''
+			items.push(b.name + mark)
+		})
+		uni.showActionSheet({
+			itemList: items,
+			success: (res : any) => {
+				const idx = res.tapIndex as number
+				const b = settings.value.babies[idx]
+				if (b.id !== settings.value.currentBabyId) {
+					settings.value.currentBabyId = b.id
+					saveSettings(settings.value)
+					refresh()
+					uni.showToast({ title: '已切换到 ' + b.name, icon: 'success' })
+				}
+			}
+		})
+	}
+
+	function daysAt(ts : number) : number {
+		return getDaysFromBirth(currentBabyBirthday.value, ts)
+	}
+
+	function goSettings() : void {
+		uni.navigateTo({ url: '/pages/settings/settings' })
+	}
+
+	const isPlayingLullaby = ref<boolean>(false)
+	const showLullabyPicker = ref<boolean>(false)
+	const playerSource = ref<string>('')
+	let lullabyPlayer : any | null = null
+
+	function ensureLullabyPlayer() : void {
+		if (lullabyPlayer != null) return
+		const p = uni.createInnerAudioContext()
+		p.loop = true
+		p.onPlay(() => { isPlayingLullaby.value = true })
+		p.onStop(() => { isPlayingLullaby.value = false })
+		p.onEnded(() => { isPlayingLullaby.value = false })
+		p.onError(() => {
+			const src = playerSource.value
+			isPlayingLullaby.value = false
+			playerSource.value = ''
+			if (src === 'shush' || src === 'womb') {
+				uni.showToast({ title: '内置音频缺失，请放入 static/audio/', icon: 'none', duration: 3000 })
+			} else {
+				uni.showToast({ title: '播放失败', icon: 'none' })
+			}
+		})
+		lullabyPlayer = p
+	}
+
+	function stopLullaby() : void {
+		if (lullabyPlayer != null && isPlayingLullaby.value) {
+			const p = lullabyPlayer as any
+			p.stop()
+		}
+		isPlayingLullaby.value = false
+		playerSource.value = ''
+	}
+
+	function pickAudio(src : string) : void {
+		if (src === 'custom' && settings.value.lullabyPath.length === 0) {
+			showLullabyPicker.value = false
+			uni.navigateTo({ url: '/pages/lullaby/lullaby' })
+			return
+		}
+		if (isPlayingLullaby.value && playerSource.value === src) {
+			stopLullaby()
+			return
+		}
+		let url = ''
+		if (src === 'shush') url = '/static/audio/shush.mp3'
+		else if (src === 'womb') url = '/static/audio/womb.mp3'
+		else if (src === 'custom') url = settings.value.lullabyPath
+		if (url.length === 0) return
+		ensureLullabyPlayer()
+		const p = lullabyPlayer as any
+		if (isPlayingLullaby.value) p.stop()
+		p.src = url
+		p.loop = true
+		p.play()
+		isPlayingLullaby.value = true
+		playerSource.value = src
+	}
+
+	function onLullabyTap() : void {
+		showLullabyPicker.value = true
+	}
+
+	function closeLullabyPicker() : void {
+		showLullabyPicker.value = false
+	}
+
+	function onLullabyLongPress() : void {
+		stopLullaby()
+		showLullabyPicker.value = false
+		uni.navigateTo({ url: '/pages/lullaby/lullaby' })
+	}
+
+	function getSuppLabel(id : string) : string {
+		const s = findSupplement(settings.value.supplements, id)
+		if (s == null) return '—'
+		return s.icon + ' ' + s.name
+	}
+
+	function getSuppColor(id : string) : string {
+		const s = findSupplement(settings.value.supplements, id)
+		if (s == null) return '#F4F4F5'
+		return s.color
+	}
+
+	function hasAnyTag(rec : FeedingRecord) : boolean {
+		return (rec.supplementIds != null && rec.supplementIds.length > 0) || rec.pee || rec.poo
+	}
+
+	const todayRecords = computed<FeedingRecord[]>(() : FeedingRecord[] => {
+		const now = Date.now()
+		const start = getStartOfDay(now)
+		const end = getEndOfDay(now)
+		return allRecords.value.filter((r : FeedingRecord) : boolean => r.timestamp >= start && r.timestamp <= end)
+	})
+
+	// 距上一条（时间更早的相邻记录）的间隔，格式 小时:分钟
+	function formatInterval(ms : number) : string {
+		let v = ms
+		if (v < 0) v = 0
+		const totalMin = Math.floor(v / 60000)
+		const h = Math.floor(totalMin / 60)
+		const m = totalMin - h * 60
+		return h.toString() + ':' + pad2(m)
+	}
+
+	// 基于全部记录按时间升序计算，确保今日第一条也能显示与昨天最后一条的间隔
+	const intervalMap = computed<Map<string, string>>(() : Map<string, string> => {
+		const m : Map<string, string> = new Map<string, string>()
+		const sorted : FeedingRecord[] = []
+		allRecords.value.forEach((r : FeedingRecord) => { sorted.push(r) })
+		sorted.sort((a : FeedingRecord, b : FeedingRecord) : number => a.timestamp - b.timestamp)
+		for (let i = 1; i < sorted.length; i++) {
+			const diff = sorted[i].timestamp - sorted[i - 1].timestamp
+			m.set(sorted[i].id, formatInterval(diff))
+		}
+		return m
+	})
+
+	function intervalOf(id : string) : string {
+		const v = intervalMap.value.get(id)
+		return v != null ? v : ''
+	}
+
+	const totalMilk = computed<number>(() : number => {
+		let sum = 0
+		todayRecords.value.forEach((r : FeedingRecord) => { sum += r.milk })
+		return sum
+	})
+
+	const feedCount = computed<number>(() : number => {
+		let c = 0
+		todayRecords.value.forEach((r : FeedingRecord) => { if (r.milk > 0) c++ })
+		return c
+	})
+
+	const peeCount = computed<number>(() : number => {
+		let c = 0
+		todayRecords.value.forEach((r : FeedingRecord) => { if (r.pee) c++ })
+		return c
+	})
+
+	const pooCount = computed<number>(() : number => {
+		let c = 0
+		todayRecords.value.forEach((r : FeedingRecord) => { if (r.poo) c++ })
+		return c
+	})
+
+	const todaySuppList = computed<Supplement[]>(() : Supplement[] => {
+		const seen : Map<string, boolean> = new Map<string, boolean>()
+		todayRecords.value.forEach((r : FeedingRecord) => {
+			if (r.supplementIds != null) {
+				r.supplementIds.forEach((id : string) => { seen.set(id, true) })
+			}
+		})
+		const list : Supplement[] = []
+		settings.value.supplements.forEach((s : Supplement) => {
+			if (seen.get(s.id) === true) list.push(s)
+		})
+		return list
+	})
+
+	const lastTempStr = computed<string>(() : string => {
+		for (let i = 0; i < allRecords.value.length; i++) {
+			const r = allRecords.value[i]
+			if (r.temperature > 0) return r.temperature.toFixed(1)
+		}
+		return '--'
+	})
+
+	function refresh() : void {
+		allRecords.value = loadRecords()
+		settings.value = loadSettings()
+		todayDate.value = getDateStr(Date.now())
+		todayWeekday.value = getWeekdayStr(Date.now())
+	}
+
+	function formatTime(ts : number) : string {
+		return getTimeStr(ts)
+	}
+
+	function goEdit(id : string) : void {
+		uni.navigateTo({ url: '/pages/record/record?id=' + id })
+	}
+
+	function onLullabyStopEvent() : void {
+		stopLullaby()
+	}
+
+	onShow(() => {
+		refresh()
+		if (lullabyPlayer != null && settings.value.lullabyPath.length === 0) {
+			stopLullaby()
+		}
+	})
+
+	onLoad(() => {
+		uni.$on('lullaby:stop', onLullabyStopEvent)
+	})
+
+	onUnload(() => {
+		uni.$off('lullaby:stop', onLullabyStopEvent)
+		if (lullabyPlayer != null) {
+			const p = lullabyPlayer as any
+			p.stop()
+			p.destroy()
+			lullabyPlayer = null
+		}
+	})
+</script>
+
+<style>
+	.page {
+		flex: 1;
+		flex-direction: column;
+		background-color: #F5F6FA;
+	}
+
+	.scroll-area {
+		flex: 1;
+	}
+
+	.hero {
+		background-color: #FF6B7A;
+		padding: 0 24rpx 20rpx 24rpx;
+	}
+
+	.hero-inner {
+		padding: 36rpx 12rpx 0 12rpx;
+		flex-direction: column;
+	}
+
+	.hero-top {
+		flex-direction: row;
+		align-items: flex-start;
+		justify-content: space-between;
+	}
+
+	.hero-greeting-wrap {
+		flex: 1;
+		flex-direction: column;
+	}
+
+	.greeting {
+		font-size: 44rpx;
+		font-weight: bold;
+		color: #FFFFFF;
+	}
+
+	.hero-date {
+		font-size: 26rpx;
+		color: #FFFFFF;
+		opacity: 0.9;
+		margin-top: 10rpx;
+	}
+
+	.hero-actions {
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.switch-btn {
+		width: 64rpx;
+		height: 64rpx;
+		border-radius: 32rpx;
+		background-color: rgba(255, 255, 255, 0.18);
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		margin-right: 12rpx;
+	}
+
+	.switch-icon {
+		font-size: 30rpx;
+	}
+
+	.lullaby-btn {
+		width: 64rpx;
+		height: 64rpx;
+		border-radius: 32rpx;
+		background-color: rgba(255, 255, 255, 0.18);
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		margin-right: 12rpx;
+	}
+
+	.settings-btn {
+		width: 64rpx;
+		height: 64rpx;
+		border-radius: 32rpx;
+		background-color: rgba(255, 255, 255, 0.18);
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.settings-btn-hover {
+		background-color: rgba(255, 255, 255, 0.3);
+	}
+
+	.settings-icon {
+		font-size: 32rpx;
+	}
+
+	.baby-badge {
+		margin-top: 18rpx;
+		flex-direction: row;
+		align-items: center;
+		align-self: flex-start;
+		background-color: rgba(255, 255, 255, 0.22);
+		border-radius: 24rpx;
+		padding: 8rpx 18rpx;
+	}
+
+	.baby-badge-icon {
+		font-size: 28rpx;
+		margin-right: 8rpx;
+	}
+
+	.baby-badge-text {
+		font-size: 24rpx;
+		color: #FFFFFF;
+		font-weight: bold;
+	}
+
+	.stats-section {
+		padding: 0 24rpx;
+		margin-top: 20rpx;
+	}
+
+	.stat-grid {
+		flex-direction: row;
+		flex-wrap: wrap;
+		justify-content: space-between;
+	}
+
+	.info-card {
+		background-color: #FFFFFF;
+		border-radius: 28rpx;
+		margin: 4rpx 24rpx 0 24rpx;
+		padding: 24rpx 28rpx;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.info-left {
+		flex: 1;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.info-icon {
+		font-size: 52rpx;
+		margin-right: 20rpx;
+	}
+
+	.info-text {
+		flex-direction: column;
+	}
+
+	.info-title {
+		font-size: 30rpx;
+		color: #3A3A3A;
+		font-weight: bold;
+		margin-bottom: 4rpx;
+	}
+
+	.info-sub {
+		font-size: 22rpx;
+		color: #999;
+	}
+
+	.info-right {
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.badge {
+		padding: 12rpx 24rpx;
+		border-radius: 30rpx;
+	}
+
+	.supp-mini-row {
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.supp-mini {
+		padding: 8rpx 16rpx;
+		border-radius: 24rpx;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		margin-left: 8rpx;
+	}
+
+	.supp-mini-text {
+		font-size: 22rpx;
+		color: #5C4033;
+	}
+
+	.badge-text {
+		font-size: 24rpx;
+		color: #FFFFFF;
+	}
+
+	.section-header {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		padding: 32rpx 32rpx 16rpx 32rpx;
+	}
+
+	.section-title {
+		font-size: 34rpx;
+		font-weight: bold;
+		color: #3A3A3A;
+	}
+
+	.section-count {
+		font-size: 24rpx;
+		color: #999;
+	}
+
+	.empty {
+		padding: 60rpx 32rpx;
+		flex-direction: column;
+		align-items: center;
+	}
+
+	.empty-icon {
+		font-size: 88rpx;
+		margin-bottom: 18rpx;
+	}
+
+	.empty-text {
+		font-size: 28rpx;
+		color: #888;
+		margin-bottom: 8rpx;
+	}
+
+	.empty-hint {
+		font-size: 24rpx;
+		color: #BBB;
+	}
+
+	.record-list {
+		padding: 0 24rpx;
+		flex-direction: column;
+	}
+
+	.record-card {
+		background-color: #FFFFFF;
+		border-radius: 24rpx;
+		padding: 24rpx 24rpx 24rpx 20rpx;
+		margin-bottom: 16rpx;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.record-time-col {
+		width: 110rpx;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.record-time {
+		font-size: 30rpx;
+		font-weight: bold;
+		color: #FF6B7A;
+	}
+
+	.time-dot {
+		width: 12rpx;
+		height: 12rpx;
+		border-radius: 6rpx;
+		background-color: #FF6B7A;
+		margin-top: 10rpx;
+	}
+
+	.record-interval {
+		font-size: 20rpx;
+		color: #B0B0B8;
+		margin-top: 8rpx;
+	}
+
+	.record-main {
+		flex: 1;
+		flex-direction: column;
+		padding: 0 16rpx;
+	}
+
+	.record-row1 {
+		flex-direction: row;
+		align-items: center;
+		flex-wrap: wrap;
+	}
+
+	.record-milk {
+		font-size: 30rpx;
+		color: #3A3A3A;
+		font-weight: bold;
+		margin-right: 18rpx;
+	}
+
+	.record-day {
+		font-size: 22rpx;
+		color: #909399;
+		margin-top: 6rpx;
+	}
+
+	.record-temp {
+		font-size: 26rpx;
+		color: #888;
+	}
+
+	.record-placeholder {
+		font-size: 26rpx;
+		color: #BBB;
+	}
+
+	.record-tags {
+		flex-direction: row;
+		flex-wrap: wrap;
+		margin-top: 10rpx;
+	}
+
+	.tag {
+		padding: 6rpx 16rpx;
+		border-radius: 20rpx;
+		margin-right: 10rpx;
+		margin-top: 4rpx;
+	}
+
+	.tag-pink {
+		background-color: #FFE4E6;
+	}
+
+	.tag-yellow {
+		background-color: #FFF3CD;
+	}
+
+	.tag-brown {
+		background-color: #EAD9C9;
+	}
+
+	.tag-text {
+		font-size: 22rpx;
+		color: #5C4033;
+	}
+
+	.record-note {
+		font-size: 24rpx;
+		color: #999;
+		margin-top: 10rpx;
+	}
+
+	.record-arrow {
+		font-size: 40rpx;
+		color: #CCC;
+		margin-left: 4rpx;
+	}
+
+	.bottom-pad {
+		height: 40rpx;
+	}
+
+	.lullaby-sheet-mask {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background-color: rgba(0, 0, 0, 0.5);
+		flex-direction: column;
+		justify-content: flex-end;
+		z-index: 999;
+	}
+
+	.lullaby-sheet {
+		background-color: #FFFFFF;
+		border-top-left-radius: 32rpx;
+		border-top-right-radius: 32rpx;
+		padding: 16rpx 24rpx 36rpx 24rpx;
+		flex-direction: column;
+	}
+
+	.lullaby-sheet-header {
+		padding: 24rpx 12rpx 20rpx 12rpx;
+		flex-direction: column;
+		align-items: center;
+	}
+
+	.lullaby-sheet-title {
+		font-size: 32rpx;
+		font-weight: bold;
+		color: #303133;
+	}
+
+	.lullaby-sheet-sub {
+		font-size: 22rpx;
+		color: #909399;
+		margin-top: 6rpx;
+	}
+
+	.lullaby-row {
+		flex-direction: row;
+		align-items: center;
+		padding: 24rpx 12rpx;
+		border-bottom-width: 1rpx;
+		border-bottom-style: solid;
+		border-bottom-color: #F0F0F0;
+	}
+
+	.lullaby-row-hover {
+		background-color: #F5F5F5;
+	}
+
+	.lullaby-row-icon {
+		font-size: 44rpx;
+		margin-right: 20rpx;
+	}
+
+	.lullaby-row-text {
+		flex: 1;
+		flex-direction: column;
+	}
+
+	.lullaby-row-name {
+		font-size: 30rpx;
+		color: #303133;
+		font-weight: bold;
+	}
+
+	.lullaby-row-desc {
+		font-size: 22rpx;
+		color: #909399;
+		margin-top: 6rpx;
+	}
+
+	.lullaby-row-state {
+		font-size: 24rpx;
+		color: #FF6B7A;
+		font-weight: bold;
+		margin-left: 12rpx;
+	}
+
+	.lullaby-cancel {
+		margin-top: 20rpx;
+		padding: 24rpx 0;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		background-color: #F5F5F5;
+		border-radius: 16rpx;
+	}
+
+	.lullaby-cancel-text {
+		font-size: 28rpx;
+		color: #606266;
+	}
+</style>

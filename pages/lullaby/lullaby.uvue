@@ -1,0 +1,363 @@
+<template>
+	<view class="page">
+		<view class="hero">
+			<view class="hero-inner">
+				<text class="hero-title">哄睡音频</text>
+				<text class="hero-sub">录一段哄睡的话或白噪音，回到首页 🎵 即可循环播放</text>
+			</view>
+		</view>
+
+		<scroll-view class="scroll-area" scroll-y="true">
+			<view class="content">
+				<view class="status-card">
+					<text class="status-icon">{{ statusIcon }}</text>
+					<text class="status-text">{{ statusText }}</text>
+					<text class="status-sub" v-if="isRecording">{{ formatSec(recordingSec) }}</text>
+					<text class="status-sub" v-else-if="hasAudio">已保存 · 点击下方按钮可重录</text>
+				</view>
+
+				<view class="primary-btn" :class="{ 'btn-recording': isRecording }" @click="onToggleRecord" hover-class="primary-btn-hover">
+					<text class="primary-btn-text">{{ isRecording ? '⏹ 停止录音' : (hasAudio ? '🎙 重新录制' : '🎙 开始录音') }}</text>
+				</view>
+
+				<view class="secondary-row" v-if="hasAudio && !isRecording">
+					<view class="secondary-btn" @click="onTryPlay" hover-class="secondary-btn-hover">
+						<text class="secondary-text">{{ isPlaying ? '⏸ 停止试听' : '▶ 试听一次' }}</text>
+					</view>
+					<view class="secondary-btn secondary-btn-gray" @click="onDelete" hover-class="secondary-btn-hover">
+						<text class="secondary-text secondary-text-gray">🗑 删除录音</text>
+					</view>
+				</view>
+
+				<view class="tip-card">
+					<text class="tip-title">使用提示</text>
+					<text class="tip-line">• 单次录音上限 10 分钟</text>
+					<text class="tip-line">• 回到首页，单击 🎵 开始/停止循环播放</text>
+					<text class="tip-line">• 在首页长按 🎵 可再次进入本页面重录</text>
+					<text class="tip-line">• 录音保存在本机，不会上传</text>
+				</view>
+
+				<view class="bottom-pad"></view>
+			</view>
+		</scroll-view>
+	</view>
+</template>
+
+<script setup lang="uts">
+	import { loadSettings, saveSettings, Settings } from '@/utils/db.uts'
+
+	const settings = ref<Settings>(loadSettings())
+	const isRecording = ref<boolean>(false)
+	const isPlaying = ref<boolean>(false)
+	const recordingSec = ref<number>(0)
+
+	let recorder : any | null = null
+	let player : any | null = null
+	let timerId : number = -1
+	let recordStart : number = 0
+
+	const hasAudio = computed<boolean>(() : boolean => settings.value.lullabyPath.length > 0)
+
+	const statusIcon = computed<string>(() : string => {
+		if (isRecording.value) return '🎙️'
+		if (hasAudio.value) return '🎵'
+		return '🎤'
+	})
+
+	const statusText = computed<string>(() : string => {
+		if (isRecording.value) return '正在录音…'
+		if (hasAudio.value) return '已有录音'
+		return '尚未录制'
+	})
+
+	function formatSec(s : number) : string {
+		const m = Math.floor(s / 60)
+		const r = s % 60
+		const rs = r < 10 ? '0' + r.toString() : r.toString()
+		return m.toString() + ':' + rs
+	}
+
+	function clearTimer() : void {
+		if (timerId >= 0) {
+			clearInterval(timerId)
+			timerId = -1
+		}
+	}
+
+	function ensureRecorder() : void {
+		if (recorder != null) return
+		const r = uni.getRecorderManager()
+		r.onStart(() => {
+			isRecording.value = true
+			recordStart = Date.now()
+			recordingSec.value = 0
+			clearTimer()
+			timerId = setInterval(() => {
+				recordingSec.value = Math.floor((Date.now() - recordStart) / 1000)
+			}, 250) as number
+		})
+		r.onStop((res : any) => {
+			isRecording.value = false
+			clearTimer()
+			const tempPath = res.tempFilePath as string
+			if (tempPath == null || tempPath.length === 0) {
+				uni.showToast({ title: '录音失败', icon: 'none' })
+				return
+			}
+			uni.saveFile({
+				tempFilePath: tempPath,
+				success: (saved : any) => {
+					settings.value.lullabyPath = saved.savedFilePath as string
+					saveSettings(settings.value)
+					uni.showToast({ title: '已保存', icon: 'success' })
+				},
+				fail: () => {
+					uni.showToast({ title: '保存失败', icon: 'none' })
+				}
+			})
+		})
+		r.onError(() => {
+			isRecording.value = false
+			clearTimer()
+			uni.showToast({ title: '录音出错', icon: 'none' })
+		})
+		recorder = r
+	}
+
+	function stopPlayInternal() : void {
+		if (player != null && isPlaying.value) {
+			const pp = player as any
+			pp.stop()
+		}
+		isPlaying.value = false
+	}
+
+	function ensurePlayer() : void {
+		if (player != null) return
+		const p = uni.createInnerAudioContext()
+		p.onEnded(() => { isPlaying.value = false })
+		p.onStop(() => { isPlaying.value = false })
+		p.onError(() => {
+			isPlaying.value = false
+			uni.showToast({ title: '播放失败', icon: 'none' })
+		})
+		player = p
+	}
+
+	function onToggleRecord() : void {
+		ensureRecorder()
+		const r = recorder as any
+		if (isRecording.value) {
+			r.stop()
+			return
+		}
+		stopPlayInternal()
+		uni.$emit('lullaby:stop', {})
+		r.start({
+			duration: 600000,
+			format: 'mp3',
+			sampleRate: 44100,
+			numberOfChannels: 1,
+			encodeBitRate: 96000
+		})
+	}
+
+	function onTryPlay() : void {
+		if (!hasAudio.value) return
+		if (isPlaying.value) {
+			stopPlayInternal()
+			return
+		}
+		ensurePlayer()
+		const pp = player as any
+		pp.src = settings.value.lullabyPath
+		pp.loop = false
+		pp.play()
+		isPlaying.value = true
+	}
+
+	function onDelete() : void {
+		uni.showModal({
+			title: '提示',
+			content: '确定删除已录制的音频吗？',
+			success: (res) => {
+				if (res.confirm) {
+					stopPlayInternal()
+					uni.$emit('lullaby:stop', {})
+					const p = settings.value.lullabyPath
+					if (p.length > 0) {
+						uni.removeSavedFile({ filePath: p, success: () => {}, fail: () => {} })
+					}
+					settings.value.lullabyPath = ''
+					saveSettings(settings.value)
+					uni.showToast({ title: '已删除', icon: 'success' })
+				}
+			}
+		})
+	}
+
+	onUnload(() => {
+		clearTimer()
+		if (recorder != null && isRecording.value) {
+			const r = recorder as any
+			r.stop()
+		}
+		if (player != null) {
+			const pp = player as any
+			pp.stop()
+			pp.destroy()
+			player = null
+		}
+	})
+</script>
+
+<style>
+	.page {
+		flex: 1;
+		flex-direction: column;
+		background-color: #F5F6FA;
+	}
+
+	.scroll-area {
+		flex: 1;
+	}
+
+	.hero {
+		background-color: #FF6B7A;
+		padding: 36rpx 24rpx 32rpx 24rpx;
+	}
+
+	.hero-inner {
+		flex-direction: column;
+	}
+
+	.hero-title {
+		font-size: 44rpx;
+		font-weight: bold;
+		color: #FFFFFF;
+	}
+
+	.hero-sub {
+		font-size: 24rpx;
+		color: #FFFFFF;
+		opacity: 0.9;
+		margin-top: 10rpx;
+	}
+
+	.content {
+		padding: 24rpx;
+		flex-direction: column;
+	}
+
+	.status-card {
+		background-color: #FFFFFF;
+		border-radius: 28rpx;
+		padding: 56rpx 24rpx;
+		margin-bottom: 24rpx;
+		flex-direction: column;
+		align-items: center;
+	}
+
+	.status-icon {
+		font-size: 96rpx;
+		margin-bottom: 16rpx;
+	}
+
+	.status-text {
+		font-size: 32rpx;
+		color: #303133;
+		font-weight: bold;
+	}
+
+	.status-sub {
+		font-size: 26rpx;
+		color: #909399;
+		margin-top: 10rpx;
+	}
+
+	.primary-btn {
+		background-color: #FF6B7A;
+		border-radius: 16rpx;
+		height: 100rpx;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		margin-bottom: 20rpx;
+	}
+
+	.primary-btn-hover {
+		background-color: #E55A6A;
+	}
+
+	.btn-recording {
+		background-color: #D9534F;
+	}
+
+	.primary-btn-text {
+		color: #FFFFFF;
+		font-size: 30rpx;
+		font-weight: bold;
+		letter-spacing: 2rpx;
+	}
+
+	.secondary-row {
+		flex-direction: row;
+		margin-bottom: 24rpx;
+	}
+
+	.secondary-btn {
+		flex: 1;
+		background-color: #FFFFFF;
+		border-radius: 16rpx;
+		height: 88rpx;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		margin: 0 6rpx;
+		border-width: 1rpx;
+		border-style: solid;
+		border-color: #FF6B7A;
+	}
+
+	.secondary-btn-gray {
+		border-color: #C0C4CC;
+	}
+
+	.secondary-btn-hover {
+		background-color: #FFF5F5;
+	}
+
+	.secondary-text {
+		font-size: 28rpx;
+		color: #FF6B7A;
+	}
+
+	.secondary-text-gray {
+		color: #909399;
+	}
+
+	.tip-card {
+		background-color: #FFFFFF;
+		border-radius: 24rpx;
+		padding: 24rpx 28rpx;
+		flex-direction: column;
+	}
+
+	.tip-title {
+		font-size: 26rpx;
+		color: #303133;
+		font-weight: bold;
+		margin-bottom: 10rpx;
+	}
+
+	.tip-line {
+		font-size: 24rpx;
+		color: #606266;
+		margin-top: 6rpx;
+		line-height: 36rpx;
+	}
+
+	.bottom-pad {
+		height: 40rpx;
+	}
+</style>

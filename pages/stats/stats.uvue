@@ -1,0 +1,628 @@
+<template>
+	<view class="page">
+		<view class="hero">
+			<view class="hero-inner">
+				<text class="hero-title">统计趋势</text>
+				<text class="hero-sub">查看宝宝近期的喂养情况</text>
+			</view>
+		</view>
+		<scroll-view class="scroll-area" scroll-y="true">
+			<view class="content">
+				<view class="period-card">
+					<view class="period-tabs">
+						<view class="period-tab" :class="{ active: isDay(7) }" @click="setDay(7)">
+							<text class="period-tab-text" :style="isDay(7) ? 'color:#FFFFFF;font-weight:bold' : 'color:#7A7A7A'">近 7 天</text>
+						</view>
+						<view class="period-tab" :class="{ active: isDay(30) }" @click="setDay(30)">
+							<text class="period-tab-text" :style="isDay(30) ? 'color:#FFFFFF;font-weight:bold' : 'color:#7A7A7A'">近 30 天</text>
+						</view>
+						<view class="period-tab" :class="{ active: isDay(90) }" @click="setDay(90)">
+							<text class="period-tab-text" :style="isDay(90) ? 'color:#FFFFFF;font-weight:bold' : 'color:#7A7A7A'">近 90 天</text>
+						</view>
+						<view class="period-tab" :class="{ active: isMonth() }" @click="setMonth()">
+							<text class="period-tab-text" :style="isMonth() ? 'color:#FFFFFF;font-weight:bold' : 'color:#7A7A7A'">按月</text>
+						</view>
+					</view>
+				</view>
+
+				<view class="summary-card">
+					<view class="summary-item">
+						<text class="summary-icon">🍼</text>
+						<text class="summary-value">{{ totalMilk }}</text>
+						<text class="summary-label">总奶量 ml</text>
+					</view>
+					<view class="summary-divider"></view>
+					<view class="summary-item">
+						<text class="summary-icon">🔁</text>
+						<text class="summary-value">{{ totalFeeds }}</text>
+						<text class="summary-label">喂奶次数</text>
+					</view>
+					<view class="summary-divider"></view>
+					<view class="summary-item">
+						<text class="summary-icon">📅</text>
+						<text class="summary-value">{{ avgDaily }}</text>
+						<text class="summary-label">日均 ml</text>
+					</view>
+				</view>
+
+				<view class="empty-chart" v-if="totalMilk === 0 && totalFeeds === 0 && totalPoo === 0 && totalPee === 0">
+					<text class="empty-chart-icon">📉</text>
+					<text class="empty-chart-text">所选时段还没有数据</text>
+					<text class="empty-chart-hint">添加几条记录后再来查看趋势</text>
+				</view>
+
+				<bar-chart
+					:title="unitPrefix + '奶量'"
+					:summary="'共 ' + totalMilk + ' ml'"
+					color="#FF9AA2"
+					:data="milkSeries"
+					:maxHeight="220"
+					:baseline="0"
+				/>
+				<bar-chart
+					:title="unitPrefix + '喂奶次数'"
+					:summary="'平均 ' + avgFeedsPerDay + ' 次/天'"
+					color="#FFB7B2"
+					:data="feedCountSeries"
+					:maxHeight="220"
+					:baseline="0"
+				/>
+				<bar-chart
+					:title="unitPrefix + '大便'"
+					:summary="'共 ' + totalPoo + ' 次'"
+					color="#C8A27A"
+					:data="pooSeries"
+					:maxHeight="220"
+					:baseline="0"
+				/>
+				<bar-chart
+					:title="unitPrefix + '小便'"
+					:summary="'共 ' + totalPee + ' 次'"
+					color="#FFD66B"
+					:data="peeSeries"
+					:maxHeight="220"
+					:baseline="0"
+				/>
+
+				<bar-chart
+					v-if="heightSeries.length > 0"
+					title="身高趋势 (cm)"
+					:summary="'共 ' + heightSeries.length + ' 条测量'"
+					color="#9ED5C5"
+					:data="heightSeries"
+					:maxHeight="220"
+					:baseline="heightBaseline"
+				/>
+				
+				<bar-chart
+					v-if="weightSeries.length > 0"
+					title="体重趋势 (kg)"
+					:summary="'共 ' + weightSeries.length + ' 条测量'"
+					color="#C8A27A"
+					:data="weightSeries"
+					:maxHeight="220"
+					:baseline="weightBaseline"
+				/>
+
+
+				<view class="info-card">
+					<view class="info-left">
+						<text class="info-icon">📏</text>
+						<view class="info-text">
+							<text class="info-title">最近成长</text>
+							<text class="info-sub">{{ growthSubtitle }}</text>
+						</view>
+					</view>
+					<view class="info-right">
+						<text class="info-main">{{ growthMain }}</text>
+						<text class="info-sub2" v-if="growthDaysAgoStr.length > 0">{{ growthDaysAgoStr }}</text>
+					</view>
+				</view>
+
+				<view class="info-card">
+					<view class="info-left">
+						<text class="info-icon">💊</text>
+						<view class="info-text">
+							<text class="info-title">补充剂</text>
+							<text class="info-sub">{{ suppCardSub }}</text>
+						</view>
+					</view>
+					<view class="info-right">
+						<text class="info-main">{{ adDays }} {{ bucketUnit }}</text>
+						<text class="info-sub2">/ {{ bucketCount }} {{ bucketUnit }}</text>
+					</view>
+				</view>
+
+				<view class="bottom-pad"></view>
+			</view>
+		</scroll-view>
+		<custom-tabbar active="stats" />
+	</view>
+</template>
+
+<script setup lang="uts">
+	import { loadRecords, FeedingRecord } from '@/utils/db.uts'
+	import { getStartOfDay, getMonthDayStr } from '@/utils/format.uts'
+
+	type ChartPoint = {
+		label : string
+		value : number
+	}
+
+	// 一个统计桶：[start, end) 时间区间 + 显示标签。按天时每天一个桶，按月时每月一个桶。
+	type Bucket = {
+		start : number
+		end : number
+		label : string
+	}
+
+	// viewMode: 'day' 按天（period 为天数）；'month' 按月合计
+	const viewMode = ref<string>('day')
+	const period = ref<number>(7)
+	const records = ref<FeedingRecord[]>([] as FeedingRecord[])
+
+	function isDay(p : number) : boolean {
+		return viewMode.value === 'day' && period.value === p
+	}
+
+	function isMonth() : boolean {
+		return viewMode.value === 'month'
+	}
+
+	function setDay(p : number) : void {
+		viewMode.value = 'day'
+		period.value = p
+	}
+
+	function setMonth() : void {
+		viewMode.value = 'month'
+	}
+
+	// 图表/卡片标题前缀
+	const unitPrefix = computed<string>(() : string => {
+		return viewMode.value === 'month' ? '每月' : '每日'
+	})
+
+	// 统计桶：按天时为最近 period 天；按月时为从最早记录所在月到本月（最多 12 个月）逐月合计
+	const buckets = computed<Bucket[]>(() : Bucket[] => {
+		const arr : Bucket[] = []
+		if (viewMode.value === 'month') {
+			if (records.value.length === 0) return arr
+			let earliest = records.value[0].timestamp
+			records.value.forEach((r : FeedingRecord) => {
+				if (r.timestamp < earliest) earliest = r.timestamp
+			})
+			const ed = new Date(earliest)
+			const now = new Date()
+			let y = ed.getFullYear()
+			let m = ed.getMonth()
+			const months : Bucket[] = []
+			while (y < now.getFullYear() || (y === now.getFullYear() && m <= now.getMonth())) {
+				const startD = new Date(y, m, 1, 0, 0, 0, 0)
+				const endD = new Date(y, m + 1, 1, 0, 0, 0, 0)
+				months.push({ start: startD.getTime(), end: endD.getTime(), label: (m + 1).toString() + '月' } as Bucket)
+				m++
+				if (m > 11) { m = 0; y++ }
+			}
+			// 最多保留最近 12 个月，保证图表可读
+			const startIdx = months.length > 12 ? months.length - 12 : 0
+			for (let i = startIdx; i < months.length; i++) {
+				arr.push(months[i])
+			}
+			return arr
+		}
+		const todayStart = getStartOfDay(Date.now())
+		for (let i = period.value - 1; i >= 0; i--) {
+			const s = todayStart - i * 86400000
+			arr.push({ start: s, end: s + 86400000, label: getMonthDayStr(s) } as Bucket)
+		}
+		return arr
+	})
+
+	const milkSeries = computed<ChartPoint[]>(() : ChartPoint[] => {
+		return buckets.value.map((b : Bucket) : ChartPoint => {
+			let sum = 0
+			records.value.forEach((r : FeedingRecord) => {
+				if (r.timestamp >= b.start && r.timestamp < b.end) sum += r.milk
+			})
+			return { label: b.label, value: sum } as ChartPoint
+		})
+	})
+
+	const feedCountSeries = computed<ChartPoint[]>(() : ChartPoint[] => {
+		return buckets.value.map((b : Bucket) : ChartPoint => {
+			let c = 0
+			records.value.forEach((r : FeedingRecord) => {
+				if (r.timestamp >= b.start && r.timestamp < b.end && r.milk > 0) c++
+			})
+			return { label: b.label, value: c } as ChartPoint
+		})
+	})
+
+	const pooSeries = computed<ChartPoint[]>(() : ChartPoint[] => {
+		return buckets.value.map((b : Bucket) : ChartPoint => {
+			let c = 0
+			records.value.forEach((r : FeedingRecord) => {
+				if (r.timestamp >= b.start && r.timestamp < b.end && r.poo) c++
+			})
+			return { label: b.label, value: c } as ChartPoint
+		})
+	})
+
+	const peeSeries = computed<ChartPoint[]>(() : ChartPoint[] => {
+		return buckets.value.map((b : Bucket) : ChartPoint => {
+			let c = 0
+			records.value.forEach((r : FeedingRecord) => {
+				if (r.timestamp >= b.start && r.timestamp < b.end && r.pee) c++
+			})
+			return { label: b.label, value: c } as ChartPoint
+		})
+	})
+
+	const totalMilk = computed<number>(() : number => {
+		let s = 0
+		milkSeries.value.forEach((p : ChartPoint) => { s += p.value })
+		return s
+	})
+
+	const totalFeeds = computed<number>(() : number => {
+		let s = 0
+		feedCountSeries.value.forEach((p : ChartPoint) => { s += p.value })
+		return s
+	})
+
+	const totalPoo = computed<number>(() : number => {
+		let s = 0
+		pooSeries.value.forEach((p : ChartPoint) => { s += p.value })
+		return s
+	})
+
+	const totalPee = computed<number>(() : number => {
+		let s = 0
+		peeSeries.value.forEach((p : ChartPoint) => { s += p.value })
+		return s
+	})
+
+	// 当前视图覆盖的总天数（用于日均计算）：按天为 period，按月为各月天数之和
+	const rangeDays = computed<number>(() : number => {
+		if (buckets.value.length === 0) return 0
+		const first = buckets.value[0].start
+		const last = buckets.value[buckets.value.length - 1].end
+		const d = Math.round((last - first) / 86400000)
+		return d < 1 ? 1 : d
+	})
+
+	const avgDaily = computed<number>(() : number => {
+		return Math.round(totalMilk.value / rangeDays.value)
+	})
+
+	const avgFeedsPerDay = computed<string>(() : string => {
+		return (totalFeeds.value / rangeDays.value).toFixed(1)
+	})
+
+	const tempReadings = computed<FeedingRecord[]>(() : FeedingRecord[] => {
+		const start = buckets.value.length > 0 ? buckets.value[0].start : 0
+		return records.value.filter((r : FeedingRecord) : boolean => r.temperature > 0 && r.timestamp >= start)
+	})
+
+	const tempReadingCount = computed<number>(() : number => tempReadings.value.length)
+
+	const latestTemp = computed<string>(() : string => {
+		for (let i = 0; i < records.value.length; i++) {
+			const r = records.value[i]
+			if (r.temperature > 0) return r.temperature.toFixed(1)
+		}
+		return '--'
+	})
+
+	const maxTemp = computed<string>(() : string => {
+		let m = 0
+		tempReadings.value.forEach((r : FeedingRecord) => {
+			if (r.temperature > m) m = r.temperature
+		})
+		return m === 0 ? '--' : m.toFixed(1)
+	})
+
+	const heightSeries = computed<ChartPoint[]>(() : ChartPoint[] => {
+		const arr : ChartPoint[] = []
+		for (let i = records.value.length - 1; i >= 0; i--) {
+			const r = records.value[i]
+			if (r.height > 0) {
+				arr.push({ label: getMonthDayStr(r.timestamp), value: r.height } as ChartPoint)
+			}
+		}
+		return arr
+	})
+
+	const weightSeries = computed<ChartPoint[]>(() : ChartPoint[] => {
+		const arr : ChartPoint[] = []
+		for (let i = records.value.length - 1; i >= 0; i--) {
+			const r = records.value[i]
+			if (r.weight > 0) {
+				arr.push({ label: getMonthDayStr(r.timestamp), value: r.weight } as ChartPoint)
+			}
+		}
+		return arr
+	})
+
+	const heightBaseline = computed<number>(() : number => {
+		if (heightSeries.value.length === 0) return 0
+		let m = heightSeries.value[0].value
+		heightSeries.value.forEach((p : ChartPoint) => { if (p.value < m) m = p.value })
+		const b = m - 2
+		return b < 0 ? 0 : b
+	})
+
+	const weightBaseline = computed<number>(() : number => {
+		if (weightSeries.value.length === 0) return 0
+		let m = weightSeries.value[0].value
+		weightSeries.value.forEach((p : ChartPoint) => { if (p.value < m) m = p.value })
+		const b = m - 0.3
+		return b < 0 ? 0 : b
+	})
+
+	const latestGrowth = computed<FeedingRecord | null>(() : FeedingRecord | null => {
+		for (let i = 0; i < records.value.length; i++) {
+			const r = records.value[i]
+			if (r.height > 0 || r.weight > 0) return r
+		}
+		return null
+	})
+
+	const growthMain = computed<string>(() : string => {
+		const r = latestGrowth.value
+		if (r == null) return '—'
+		const parts : string[] = []
+		if (r.height > 0) parts.push(r.height.toFixed(1) + 'cm')
+		if (r.weight > 0) parts.push(r.weight.toFixed(1) + 'kg')
+		return parts.join(' · ')
+	})
+
+	const growthSubtitle = computed<string>(() : string => {
+		const r = latestGrowth.value
+		if (r == null) return '暂无测量记录'
+		return '上次测量时间'
+	})
+
+	const growthDaysAgoStr = computed<string>(() : string => {
+		const r = latestGrowth.value
+		if (r == null) return ''
+		const todayStart = getStartOfDay(Date.now())
+		const recStart = getStartOfDay(r.timestamp)
+		const days = Math.round((todayStart - recStart) / 86400000)
+		if (days === 0) return '今天'
+		if (days === 1) return '昨天'
+		return days.toString() + ' 天前'
+	})
+
+	const bucketUnit = computed<string>(() : string => {
+		return viewMode.value === 'month' ? '月' : '天'
+	})
+
+	const bucketCount = computed<number>(() : number => {
+		return buckets.value.length
+	})
+
+	const suppCardSub = computed<string>(() : string => {
+		if (viewMode.value === 'month') {
+			return '近 ' + bucketCount.value.toString() + ' 个月有补充记录的月份'
+		}
+		return period.value.toString() + ' 天内有补充记录的天数'
+	})
+
+	// 有补充剂记录的桶数（按天=天数，按月=月份数）
+	const adDays = computed<number>(() : number => {
+		let c = 0
+		buckets.value.forEach((b : Bucket) => {
+			const has = records.value.some((r : FeedingRecord) : boolean => {
+				if (r.timestamp < b.start || r.timestamp >= b.end) return false
+				return r.supplementIds != null && r.supplementIds.length > 0
+			})
+			if (has) c++
+		})
+		return c
+	})
+
+	onShow(() => {
+		records.value = loadRecords()
+	})
+</script>
+
+<style>
+	.page {
+		flex: 1;
+		flex-direction: column;
+		background-color: #F5F6FA;
+	}
+
+	.scroll-area {
+		flex: 1;
+	}
+
+	.hero {
+		background-color: #FF6B7A;
+		padding: 0 24rpx 20rpx 24rpx;
+	}
+
+	.hero-inner {
+		padding: 36rpx 12rpx 0 12rpx;
+		flex-direction: column;
+	}
+
+	.hero-title {
+		font-size: 44rpx;
+		font-weight: bold;
+		color: #FFFFFF;
+	}
+
+	.hero-sub {
+		font-size: 26rpx;
+		color: #FFFFFF;
+		opacity: 0.9;
+		margin-top: 10rpx;
+	}
+
+	.content {
+		margin-top: 20rpx;
+		padding: 0 24rpx;
+		flex-direction: column;
+	}
+
+	.period-card {
+		background-color: #FFFFFF;
+		border-radius: 28rpx;
+		padding: 16rpx;
+		margin-bottom: 20rpx;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.period-tabs {
+		flex-direction: row;
+		background-color: #FFEEF0;
+		border-radius: 40rpx;
+		padding: 6rpx;
+		width: 100%;
+	}
+
+	.period-tab {
+		flex: 1;
+		padding: 16rpx 0;
+		border-radius: 36rpx;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.period-tab.active {
+		background-color: #FF6B7A;
+	}
+
+	.period-tab-text {
+		font-size: 28rpx;
+	}
+
+	.summary-card {
+		flex-direction: row;
+		align-items: stretch;
+		background-color: #FFFFFF;
+		border-radius: 28rpx;
+		padding: 28rpx 0;
+		margin-bottom: 24rpx;
+	}
+
+	.summary-item {
+		flex: 1;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.summary-icon {
+		font-size: 40rpx;
+		margin-bottom: 10rpx;
+	}
+
+	.summary-value {
+		font-size: 40rpx;
+		font-weight: bold;
+		color: #FF6B7A;
+		line-height: 48rpx;
+	}
+
+	.summary-label {
+		font-size: 22rpx;
+		color: #888;
+		margin-top: 8rpx;
+	}
+
+	.summary-divider {
+		width: 1rpx;
+		background-color: #F0E5D5;
+		margin-top: 12rpx;
+		margin-bottom: 12rpx;
+	}
+
+	.info-card {
+		background-color: #FFFFFF;
+		border-radius: 28rpx;
+		padding: 24rpx 28rpx;
+		margin-bottom: 16rpx;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.info-left {
+		flex: 1;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.info-icon {
+		font-size: 52rpx;
+		margin-right: 20rpx;
+	}
+
+	.info-text {
+		flex-direction: column;
+	}
+
+	.info-title {
+		font-size: 30rpx;
+		color: #3A3A3A;
+		font-weight: bold;
+		margin-bottom: 4rpx;
+	}
+
+	.info-sub {
+		font-size: 22rpx;
+		color: #999;
+	}
+
+	.info-right {
+		flex-direction: column;
+		align-items: flex-end;
+	}
+
+	.info-main {
+		font-size: 32rpx;
+		color: #FF6B7A;
+		font-weight: bold;
+	}
+
+	.info-sub2 {
+		font-size: 22rpx;
+		color: #999;
+		margin-top: 4rpx;
+	}
+
+	.empty-chart {
+		background-color: #FFFFFF;
+		border-radius: 28rpx;
+		padding: 60rpx 32rpx;
+		margin-bottom: 20rpx;
+		flex-direction: column;
+		align-items: center;
+	}
+
+	.empty-chart-icon {
+		font-size: 80rpx;
+		margin-bottom: 16rpx;
+	}
+
+	.empty-chart-text {
+		font-size: 28rpx;
+		color: #888;
+		margin-bottom: 6rpx;
+	}
+
+	.empty-chart-hint {
+		font-size: 22rpx;
+		color: #BBB;
+	}
+
+	.bottom-pad {
+		height: 40rpx;
+	}
+</style>

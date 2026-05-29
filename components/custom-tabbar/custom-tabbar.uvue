@@ -1,0 +1,124 @@
+<template>
+	<view class="tabbar-placeholder"></view>
+	<view class="tabbar">
+		<view class="tabbar-inner">
+			<view class="tab-item" @click="go('today')">
+				<text class="tab-icon" :style="active === 'today' ? 'color:#FF6B7A' : 'color:#B5B5B5'">🏠</text>
+				<text class="tab-label" :style="active === 'today' ? 'color:#FF6B7A;font-weight:bold' : 'color:#B5B5B5'">今日</text>
+			</view>
+			<view class="tab-item tab-item-fab" @click="goRecord">
+				<view class="fab-circle">
+					<text class="fab-plus">+</text>
+				</view>
+				<text class="tab-label-fab">记录</text>
+			</view>
+			<view class="tab-item" @click="go('stats')">
+				<text class="tab-icon" :style="active === 'stats' ? 'color:#FF6B7A' : 'color:#B5B5B5'">📊</text>
+				<text class="tab-label" :style="active === 'stats' ? 'color:#FF6B7A;font-weight:bold' : 'color:#B5B5B5'">统计</text>
+			</view>
+			<view class="tab-item" @click="go('list')">
+				<text class="tab-icon" :style="active === 'list' ? 'color:#FF6B7A' : 'color:#B5B5B5'">📖</text>
+				<text class="tab-label" :style="active === 'list' ? 'color:#FF6B7A;font-weight:bold' : 'color:#B5B5B5'">历史</text>
+			</view>
+		</view>
+		<view class="tabbar-safe"></view>
+	</view>
+</template>
+
+<script setup lang="uts">
+	const props = defineProps<{
+		active : string
+	}>()
+
+	function go(name : string) : void {
+		if (name === props.active) return
+		let url = '/pages/index/index'
+		if (name === 'stats') url = '/pages/stats/stats'
+		else if (name === 'list') url = '/pages/list/list'
+		uni.redirectTo({ url: url })
+	}
+
+	function goRecord() : void {
+		uni.navigateTo({ url: '/pages/record/record' })
+	}
+</script>
+
+<style>
+	.tabbar-placeholder {
+		height: 140rpx;
+	}
+
+	.tabbar {
+		position: fixed;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background-color: #FFFFFF;
+		flex-direction: column;
+		border-top-width: 1rpx;
+		border-top-style: solid;
+		border-top-color: #F0E5D5;
+	}
+
+	.tabbar-inner {
+		height: 100rpx;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-around;
+	}
+
+	.tabbar-safe {
+		height: env(safe-area-inset-bottom);
+		background-color: #FFFFFF;
+	}
+
+	.tab-item {
+		flex: 1;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		height: 100%;
+	}
+
+	.tab-icon {
+		font-size: 36rpx;
+		line-height: 44rpx;
+	}
+
+	.tab-label {
+		font-size: 22rpx;
+		margin-top: 6rpx;
+	}
+
+	.tab-item-fab {
+		flex-direction: column;
+		align-items: center;
+		justify-content: flex-start;
+	}
+
+	.fab-circle {
+		width: 36rpx;
+		height: 36rpx;
+		border-radius: 18rpx;
+		background-color: #FF6B7A;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		margin-top: 18rpx;
+		box-shadow: 0 6rpx 6rpx rgba(255, 107, 122, 0.4);
+	}
+
+	.fab-plus {
+		font-size: 42rpx;
+		color: #FFFFFF;
+		font-weight: bold;
+		line-height: 42rpx;
+	}
+
+	.tab-label-fab {
+		font-size: 22rpx;
+		color: #FF6B7A;
+		font-weight: bold;
+		margin-top: 8rpx;
+	}
+</style>

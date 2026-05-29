@@ -1,0 +1,73 @@
+<template>
+	<view class="stat-card" :style="'background-color:' + bgColor">
+		<text class="stat-icon">{{ icon }}</text>
+		<view class="stat-bottom">
+			<view class="stat-value-row">
+				<text class="stat-value">{{ value }}</text>
+				<text class="stat-unit" v-if="unit.length > 0">{{ unit }}</text>
+			</view>
+			<text class="stat-label">{{ label }}</text>
+		</view>
+	</view>
+</template>
+
+<script setup lang="uts">
+	defineProps<{
+		icon : string
+		value : string
+		unit : string
+		label : string
+		bgColor : string
+	}>()
+</script>
+
+<style>
+	.stat-card {
+		width: 23.5%;
+		height: 170rpx;
+		border-radius: 20rpx;
+		padding: 16rpx 14rpx;
+		margin-bottom: 12rpx;
+		flex-direction: column;
+		align-items: flex-start;
+		justify-content: space-between;
+	}
+
+	.stat-icon {
+		font-size: 32rpx;
+		line-height: 38rpx;
+	}
+
+	.stat-bottom {
+		flex-direction: column;
+		align-items: flex-start;
+		width: 100%;
+	}
+
+	.stat-value-row {
+		flex-direction: row;
+		align-items: flex-end;
+	}
+
+	.stat-value {
+		font-size: 36rpx;
+		font-weight: bold;
+		color: #FFFFFF;
+		line-height: 40rpx;
+	}
+
+	.stat-unit {
+		font-size: 18rpx;
+		color: #FFFFFF;
+		opacity: 0.9;
+		margin-left: 4rpx;
+		margin-bottom: 4rpx;
+	}
+
+	.stat-label {
+		font-size: 20rpx;
+		color: #FFFFFF;
+		opacity: 0.9;
+		margin-top: 6rpx;
+	}
+</style>

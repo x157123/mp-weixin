@@ -1,0 +1,724 @@
+<template>
+	<view class="page">
+		<scroll-view class="scroll-area" scroll-y="true">
+
+			<view class="card">
+				<view class="card-header">
+					<text class="card-title">时间</text>
+				</view>
+				<view class="row-double">
+					<picker class="half-picker" mode="date" :value="dateStr" @change="onDateChange">
+						<view class="half">
+							<text class="row-icon">📅</text>
+							<view class="half-text">
+								<text class="row-sub">日期</text>
+								<text class="row-value">{{ dateStr }}</text>
+							</view>
+						</view>
+					</picker>
+					<view class="vline"></view>
+					<picker class="half-picker" mode="time" :value="timeStr" @change="onTimeChange">
+						<view class="half">
+							<text class="row-icon">⏰</text>
+							<view class="half-text">
+								<text class="row-sub">时间</text>
+								<text class="row-value">{{ timeStr }}</text>
+							</view>
+						</view>
+					</picker>
+				</view>
+			</view>
+
+			<view class="card">
+				<view class="card-header">
+					<text class="card-title">喂奶 · 体温</text>
+				</view>
+				<picker mode="selector" :range="milkOptions" :value="milkInitIndex" @change="onMilkChange">
+					<view class="cell">
+						<view class="cell-left">
+							<text class="cell-icon">🍼</text>
+							<text class="cell-title">奶量</text>
+						</view>
+						<view class="cell-right">
+							<text class="cell-value">{{ milkDisplay }}</text>
+							<text class="cell-arrow">›</text>
+						</view>
+					</view>
+				</picker>
+				<view class="hairline"></view>
+				<picker mode="selector" :range="tempOptions" :value="tempInitIndex" @change="onTempChange">
+					<view class="cell">
+						<view class="cell-left">
+							<text class="cell-icon">🌡️</text>
+							<text class="cell-title">体温</text>
+						</view>
+						<view class="cell-right">
+							<text class="cell-value">{{ tempDisplay }}</text>
+							<text class="cell-arrow">›</text>
+						</view>
+					</view>
+				</picker>
+			</view>
+
+			<view class="card">
+				<view class="card-header">
+					<text class="card-title">身高 · 体重</text>
+				</view>
+				<picker mode="selector" :range="heightOptions" :value="heightInitIndex" @change="onHeightChange">
+					<view class="cell">
+						<view class="cell-left">
+							<text class="cell-icon">📏</text>
+							<text class="cell-title">身高</text>
+						</view>
+						<view class="cell-right">
+							<text class="cell-value">{{ heightDisplay }}</text>
+							<text class="cell-arrow">›</text>
+						</view>
+					</view>
+				</picker>
+				<view class="hairline"></view>
+				<picker mode="selector" :range="weightOptions" :value="weightInitIndex" @change="onWeightChange">
+					<view class="cell">
+						<view class="cell-left">
+							<text class="cell-icon">⚖️</text>
+							<text class="cell-title">体重</text>
+						</view>
+						<view class="cell-right">
+							<text class="cell-value">{{ weightDisplay }}</text>
+							<text class="cell-arrow">›</text>
+						</view>
+					</view>
+				</picker>
+			</view>
+
+			<view class="card">
+				<view class="card-header">
+					<text class="card-title">大小便</text>
+				</view>
+				<view class="chips-row">
+					<view class="chip" :class="{ chipOn: pee }" @click="pee = !pee">
+						<text class="chip-text" :style="pee ? 'color:#FFFFFF' : 'color:#606266'">💧 小便</text>
+					</view>
+					<view class="chip" :class="{ chipOn: poo }" @click="poo = !poo">
+						<text class="chip-text" :style="poo ? 'color:#FFFFFF' : 'color:#606266'">💩 大便</text>
+					</view>
+				</view>
+			</view>
+
+			<view class="card">
+				<view class="card-header">
+					<text class="card-title">补充剂</text>
+					<text class="card-counter" @click="goSettings">⚙️ 管理</text>
+				</view>
+				<view class="empty-row" v-if="enabledSupplements.length === 0">
+					<text class="empty-row-text">尚未配置补充剂 · 点右上"⚙️ 管理"前往添加</text>
+				</view>
+				<view v-else class="chips-row-wrap">
+					<view class="chip-wrap" v-for="s in enabledSupplements" :key="s.id" :class="{ chipOn: hasSupp(s.id) }" @click="toggleSupp(s.id)">
+						<text class="chip-text" :style="hasSupp(s.id) ? 'color:#FFFFFF' : 'color:#606266'">{{ s.icon }} {{ s.name }}</text>
+					</view>
+				</view>
+			</view>
+
+			<view class="card">
+				<view class="card-header">
+					<text class="card-title">备注</text>
+					<text class="card-counter">{{ note.length }}/200</text>
+				</view>
+				<textarea class="textarea" v-model="note" placeholder="可填吐奶、哭闹等情况..." placeholder-style="color:#C0C4CC;font-size:28rpx" maxlength="200" />
+			</view>
+
+		</scroll-view>
+		<view class="actions">
+			<view class="btn btn-primary" @click="onSave" hover-class="btn-primary-hover">
+				<text class="btn-primary-text">{{ isEdit ? '保存修改' : '保存记录' }}</text>
+			</view>
+			<view class="btn btn-danger" v-if="isEdit" @click="onDelete" hover-class="btn-danger-hover">
+				<text class="btn-danger-text">删除此条记录</text>
+			</view>
+		</view>
+	</view>
+</template>
+
+<script setup lang="uts">
+	import { addRecord, updateRecord, deleteRecord, getRecord, loadRecords, loadSettings, genId, FeedingRecord, Settings, Supplement } from '@/utils/db.uts'
+	import { getDateStr, getTimeStr, parseDateTime } from '@/utils/format.uts'
+
+	const settings = ref<Settings>(loadSettings())
+
+	const enabledSupplements = computed<Supplement[]>(() : Supplement[] => {
+		return settings.value.supplements.filter((s : Supplement) : boolean => s.enabled)
+	})
+
+	const supplementIds = ref<string[]>([] as string[])
+
+	function hasSupp(id : string) : boolean {
+		return supplementIds.value.indexOf(id) >= 0
+	}
+
+	function toggleSupp(id : string) : void {
+		const idx = supplementIds.value.indexOf(id)
+		if (idx >= 0) {
+			supplementIds.value.splice(idx, 1)
+		} else {
+			supplementIds.value.push(id)
+		}
+	}
+
+	function goSettings() : void {
+		uni.navigateTo({ url: '/pages/settings/settings' })
+	}
+
+	const editingId = ref<string>('')
+	const editingBabyId = ref<string>('')
+	const isEdit = computed<boolean>(() : boolean => editingId.value.length > 0)
+
+	const nowTs = Date.now()
+	const dateStr = ref<string>(getDateStr(nowTs))
+	const timeStr = ref<string>(getTimeStr(nowTs))
+
+	function buildMilkOptions() : string[] {
+		const arr : string[] = []
+		arr.push('未记录')
+		for (let i = 1; i <= 30; i++) {
+			arr.push((i * 10).toString() + ' ml')
+		}
+		return arr
+	}
+
+	function buildTempOptions() : string[] {
+		const arr : string[] = []
+		arr.push('未记录')
+		for (let i = 350; i <= 400; i++) {
+			arr.push((i / 10).toFixed(1) + ' °C')
+		}
+		return arr
+	}
+
+	function buildHeightOptions() : string[] {
+		const arr : string[] = []
+		arr.push('未记录')
+		for (let i = 600; i <= 1800; i += 5) {
+			arr.push((i / 10).toFixed(1) + ' cm')
+		}
+		return arr
+	}
+
+	function buildWeightOptions() : string[] {
+		const arr : string[] = []
+		arr.push('未记录')
+		for (let i = 20; i <= 250; i++) {
+			arr.push((i / 10).toFixed(1) + ' kg')
+		}
+		return arr
+	}
+
+	const milkOptions = ref<string[]>(buildMilkOptions())
+	const tempOptions = ref<string[]>(buildTempOptions())
+	const heightOptions = ref<string[]>(buildHeightOptions())
+	const weightOptions = ref<string[]>(buildWeightOptions())
+
+	const milkIndex = ref<number>(0)
+	const tempIndex = ref<number>(0)
+	const heightIndex = ref<number>(0)
+	const weightIndex = ref<number>(0)
+
+	const milkInitIndex = ref<number>(12)
+	const tempInitIndex = ref<number>(0)
+	const heightInitIndex = ref<number>(0)
+	const weightInitIndex = ref<number>(0)
+
+	const pee = ref<boolean>(false)
+	const poo = ref<boolean>(false)
+	const note = ref<string>('')
+
+	const milkDisplay = computed<string>(() : string => {
+		const idx = milkIndex.value
+		if (idx <= 0 || idx >= milkOptions.value.length) return '未记录'
+		return milkOptions.value[idx]
+	})
+
+	const tempDisplay = computed<string>(() : string => {
+		const idx = tempIndex.value
+		if (idx <= 0 || idx >= tempOptions.value.length) return '未记录'
+		return tempOptions.value[idx]
+	})
+
+	const heightDisplay = computed<string>(() : string => {
+		const idx = heightIndex.value
+		if (idx <= 0 || idx >= heightOptions.value.length) return '未记录'
+		return heightOptions.value[idx]
+	})
+
+	const weightDisplay = computed<string>(() : string => {
+		const idx = weightIndex.value
+		if (idx <= 0 || idx >= weightOptions.value.length) return '未记录'
+		return weightOptions.value[idx]
+	})
+
+	function onDateChange(e : any) : void {
+		dateStr.value = e.detail.value as string
+	}
+
+	function onTimeChange(e : any) : void {
+		timeStr.value = e.detail.value as string
+	}
+
+	function onMilkChange(e : any) : void {
+		const idx = parseInt(e.detail.value as string)
+		milkIndex.value = idx
+		milkInitIndex.value = idx
+	}
+
+	function onTempChange(e : any) : void {
+		const idx = parseInt(e.detail.value as string)
+		tempIndex.value = idx
+		tempInitIndex.value = idx
+	}
+
+	function onHeightChange(e : any) : void {
+		const idx = parseInt(e.detail.value as string)
+		heightIndex.value = idx
+		heightInitIndex.value = idx
+	}
+
+	function onWeightChange(e : any) : void {
+		const idx = parseInt(e.detail.value as string)
+		weightIndex.value = idx
+		weightInitIndex.value = idx
+	}
+
+	function getMilkValue() : number {
+		if (milkIndex.value <= 0) return 0
+		return milkIndex.value * 10
+	}
+
+	function getTempValue() : number {
+		if (tempIndex.value <= 0) return 0
+		return (350 + (tempIndex.value - 1)) / 10
+	}
+
+	function getHeightValue() : number {
+		if (heightIndex.value <= 0) return 0
+		return (600 + (heightIndex.value - 1) * 5) / 10
+	}
+
+	function getWeightValue() : number {
+		if (weightIndex.value <= 0) return 0
+		return (20 + (weightIndex.value - 1)) / 10
+	}
+
+	function tempToIndex(t : number) : number {
+		if (t <= 0) return 0
+		const offset = Math.round(t * 10) - 350
+		if (offset < 0) return 0
+		if (offset > 50) return 50
+		return offset + 1
+	}
+
+	function heightToIndex(h : number) : number {
+		if (h <= 0) return 0
+		const offset = Math.round(h * 10) - 600
+		if (offset < 0) return 0
+		const idx = Math.round(offset / 5) + 1
+		const maxIdx = heightOptions.value.length - 1
+		if (idx > maxIdx) return maxIdx
+		return idx
+	}
+
+	function weightToIndex(w : number) : number {
+		if (w <= 0) return 0
+		const offset = Math.round(w * 10) - 20
+		if (offset < 0) return 0
+		const idx = offset + 1
+		const maxIdx = weightOptions.value.length - 1
+		if (idx > maxIdx) return maxIdx
+		return idx
+	}
+
+	function milkToIndex(m : number) : number {
+		if (m <= 0) return 0
+		const idx = Math.round(m / 10)
+		if (idx < 1) return 1
+		if (idx > 30) return 30
+		return idx
+	}
+
+	function onSave() : void {
+		const milk = getMilkValue()
+		const temp = getTempValue()
+		const height = getHeightValue()
+		const weight = getWeightValue()
+		if (milk === 0 && temp === 0 && height === 0 && weight === 0 && supplementIds.value.length === 0 && !pee.value && !poo.value && note.value.length === 0) {
+			uni.showToast({ title: '请至少填写一项', icon: 'none' })
+			return
+		}
+		const ts = parseDateTime(dateStr.value, timeStr.value)
+		const adFlag = supplementIds.value.indexOf('ad') >= 0
+		const ids = supplementIds.value.slice(0)
+		if (isEdit.value) {
+			const rec : FeedingRecord = {
+				id: editingId.value,
+				timestamp: ts,
+				babyId: editingBabyId.value,
+				milk: milk,
+				temperature: temp,
+				height: height,
+				weight: weight,
+				ad: adFlag,
+				supplementIds: ids,
+				pee: pee.value,
+				poo: poo.value,
+				note: note.value
+			}
+			updateRecord(rec)
+			uni.showToast({ title: '已保存', icon: 'success' })
+		} else {
+			const rec : FeedingRecord = {
+				id: genId(),
+				timestamp: ts,
+				babyId: settings.value.currentBabyId,
+				milk: milk,
+				temperature: temp,
+				height: height,
+				weight: weight,
+				ad: adFlag,
+				supplementIds: ids,
+				pee: pee.value,
+				poo: poo.value,
+				note: note.value
+			}
+			addRecord(rec)
+			uni.showToast({ title: '已添加', icon: 'success' })
+		}
+		setTimeout(() => {
+			uni.navigateBack({})
+		}, 600)
+	}
+
+	function onDelete() : void {
+		uni.showModal({
+			title: '提示',
+			content: '确定删除这条记录吗？',
+			success: (res) => {
+				if (res.confirm) {
+					deleteRecord(editingId.value)
+					uni.showToast({ title: '已删除', icon: 'success' })
+					setTimeout(() => {
+						uni.navigateBack({})
+					}, 500)
+				}
+			}
+		})
+	}
+
+	function fillForm(rec : FeedingRecord) : void {
+		editingId.value = rec.id
+		editingBabyId.value = rec.babyId != null ? rec.babyId : settings.value.currentBabyId
+		dateStr.value = getDateStr(rec.timestamp)
+		timeStr.value = getTimeStr(rec.timestamp)
+		milkIndex.value = milkToIndex(rec.milk)
+		tempIndex.value = tempToIndex(rec.temperature)
+		heightIndex.value = heightToIndex(rec.height)
+		weightIndex.value = weightToIndex(rec.weight)
+		milkInitIndex.value = milkIndex.value
+		tempInitIndex.value = tempIndex.value
+		heightInitIndex.value = heightIndex.value
+		weightInitIndex.value = weightIndex.value
+		if (rec.supplementIds != null) {
+			supplementIds.value = rec.supplementIds.slice(0)
+		} else if (rec.ad) {
+			supplementIds.value = ['ad']
+		} else {
+			supplementIds.value = [] as string[]
+		}
+		pee.value = rec.pee
+		poo.value = rec.poo
+		note.value = rec.note
+		uni.setNavigationBarTitle({ title: '编辑记录' })
+	}
+
+	function preloadFromLastRecord() : void {
+		const all = loadRecords()
+		if (all.length === 0) return
+		let milkFound = false
+		let tempFound = false
+		let heightFound = false
+		let weightFound = false
+		for (let i = 0; i < all.length; i++) {
+			const r = all[i]
+			if (!milkFound && r.milk > 0) {
+				milkInitIndex.value = milkToIndex(r.milk)
+				milkFound = true
+			}
+			if (!tempFound && r.temperature > 0) {
+				tempInitIndex.value = tempToIndex(r.temperature)
+				tempFound = true
+			}
+			if (!heightFound && r.height > 0) {
+				heightInitIndex.value = heightToIndex(r.height)
+				heightFound = true
+			}
+			if (!weightFound && r.weight > 0) {
+				weightInitIndex.value = weightToIndex(r.weight)
+				weightFound = true
+			}
+			if (milkFound && tempFound && heightFound && weightFound) break
+		}
+	}
+
+	onLoad((options : any) => {
+		const id = options != null ? options.id : null
+		if (id != null && (id as string).length > 0) {
+			const rec = getRecord(id as string)
+			if (rec != null) {
+				fillForm(rec)
+			}
+		} else {
+			preloadFromLastRecord()
+		}
+	})
+</script>
+
+<style>
+	.page {
+		flex: 1;
+		flex-direction: column;
+		background-color: #F5F6FA;
+	}
+
+	.scroll-area {
+		flex: 1;
+	}
+
+	.card {
+		background-color: #FFFFFF;
+		border-radius: 20rpx;
+		margin: 20rpx 24rpx 0 24rpx;
+		padding: 24rpx 28rpx;
+		flex-direction: column;
+	}
+
+	.card-header {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0 0 12rpx 0;
+	}
+
+	.card-title {
+		font-size: 24rpx;
+		color: #909399;
+		letter-spacing: 1rpx;
+	}
+
+	.card-counter {
+		font-size: 22rpx;
+		color: #C0C4CC;
+	}
+
+	.row-double {
+		flex-direction: row;
+		align-items: stretch;
+		height: 100rpx;
+	}
+
+	.half-picker {
+		flex: 1;
+	}
+
+	.half {
+		flex-direction: row;
+		align-items: center;
+		justify-content: flex-start;
+		padding: 0 12rpx;
+		height: 100rpx;
+	}
+
+	.row-icon {
+		font-size: 40rpx;
+		margin-right: 16rpx;
+	}
+
+	.half-text {
+		flex-direction: column;
+		align-items: flex-start;
+	}
+
+	.row-sub {
+		font-size: 22rpx;
+		color: #909399;
+		margin-bottom: 4rpx;
+	}
+
+	.row-value {
+		font-size: 30rpx;
+		color: #303133;
+		font-weight: bold;
+	}
+
+	.vline {
+		width: 1rpx;
+		background-color: #EBEEF5;
+		margin-top: 18rpx;
+		margin-bottom: 18rpx;
+	}
+
+	.cell {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		height: 96rpx;
+	}
+
+	.cell-left {
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.cell-icon {
+		font-size: 36rpx;
+		margin-right: 16rpx;
+	}
+
+	.cell-title {
+		font-size: 30rpx;
+		color: #303133;
+	}
+
+	.cell-right {
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.cell-value {
+		font-size: 28rpx;
+		color: #FF6B7A;
+		font-weight: bold;
+		margin-right: 8rpx;
+	}
+
+	.cell-arrow {
+		font-size: 36rpx;
+		color: #C0C4CC;
+	}
+
+	.hairline {
+		height: 1rpx;
+		background-color: #EBEEF5;
+		margin: 0 -8rpx;
+	}
+
+	.chips-row {
+		flex-direction: row;
+		align-items: center;
+		padding-top: 8rpx;
+	}
+
+	.chip {
+		flex: 1;
+		padding: 18rpx 0;
+		background-color: #F4F4F5;
+		border-radius: 12rpx;
+		margin: 0 6rpx;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.chipOn {
+		background-color: #FF6B7A;
+	}
+
+	.chip-text {
+		font-size: 26rpx;
+	}
+
+	.chips-row-wrap {
+		flex-direction: row;
+		flex-wrap: wrap;
+		padding-top: 8rpx;
+	}
+
+	.chip-wrap {
+		padding: 16rpx 24rpx;
+		background-color: #F4F4F5;
+		border-radius: 40rpx;
+		margin: 0 12rpx 12rpx 0;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.empty-row {
+		padding: 24rpx 0;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.empty-row-text {
+		font-size: 24rpx;
+		color: #909399;
+	}
+
+	.textarea {
+		font-size: 28rpx;
+		color: #303133;
+		background-color: #FAFAFC;
+		border-radius: 12rpx;
+		padding: 20rpx;
+		height: 180rpx;
+		width: 100%;
+		margin-top: 4rpx;
+	}
+
+	.actions {
+		flex-direction: column;
+		padding: 36rpx 24rpx 16rpx 24rpx;
+	}
+
+	.btn {
+		height: 92rpx;
+		border-radius: 12rpx;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		margin-bottom: 20rpx;
+	}
+
+	.btn-primary {
+		background-color: #FF6B7A;
+	}
+
+	.btn-primary-hover {
+		background-color: #E55A6A;
+	}
+
+	.btn-primary-text {
+		color: #FFFFFF;
+		font-size: 30rpx;
+		font-weight: bold;
+		letter-spacing: 2rpx;
+	}
+
+	.btn-danger {
+		background-color: #FFFFFF;
+		border-width: 1rpx;
+		border-style: solid;
+		border-color: #FF6B7A;
+	}
+
+	.btn-danger-hover {
+		background-color: #FFF5F5;
+	}
+
+	.btn-danger-text {
+		color: #FF6B7A;
+		font-size: 28rpx;
+	}
+
+	.bottom-pad {
+		height: 60rpx;
+	}
+</style>

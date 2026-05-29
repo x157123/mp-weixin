@@ -1,0 +1,1071 @@
+<template>
+	<view class="page">
+		<scroll-view class="scroll-area" scroll-y="true">
+
+			<view class="card">
+				<view class="card-header">
+					<text class="card-title">宝宝管理</text>
+					<text class="card-counter">{{ settings.babies.length }} 个</text>
+				</view>
+
+				<view v-for="(b, idx) in settings.babies" :key="b.id">
+					<view class="cell" @click="onBabyTap(idx)">
+						<view class="cell-left">
+							<text class="cell-icon">{{ b.gender === '男' ? '👦' : (b.gender === '女' ? '👧' : '👶') }}</text>
+							<view class="cell-text">
+								<text class="cell-title">{{ b.name }}</text>
+								<text class="cell-sub">{{ getBabyAgeStr(b.birthday, todayMs) }}</text>
+							</view>
+						</view>
+						<view class="cell-right">
+							<view class="current-pill" v-if="b.id === settings.currentBabyId">
+								<text class="current-pill-text">当前</text>
+							</view>
+							<view class="baby-edit-btn" @click.stop="onBabyEdit(idx)">
+								<text class="baby-edit-icon">✏️</text>
+							</view>
+						</view>
+					</view>
+					<view class="hairline" v-if="idx < settings.babies.length - 1"></view>
+				</view>
+
+				<view class="add-btn" @click="onAddBaby" hover-class="add-btn-hover">
+					<text class="add-btn-text">＋ 添加宝宝</text>
+				</view>
+			</view>
+
+			<view class="card">
+				<view class="card-header">
+					<text class="card-title">补充剂</text>
+					<text class="card-counter">{{ settings.supplements.length }} 项</text>
+				</view>
+
+				<view v-if="settings.supplements.length === 0" class="empty-row">
+					<text class="empty-row-text">暂无补充剂</text>
+				</view>
+
+				<view v-else>
+					<view v-for="(s, idx) in settings.supplements" :key="s.id">
+						<view class="cell" @click="editSupplement(idx)">
+							<view class="cell-left">
+								<view class="supp-icon-wrap" :style="'background-color:' + s.color">
+									<text class="supp-icon">{{ s.icon }}</text>
+								</view>
+								<view class="cell-text">
+									<text class="cell-title">{{ s.name }}</text>
+									<text class="cell-sub">{{ s.enabled ? '已启用' : '已停用' }}</text>
+								</view>
+							</view>
+							<view class="cell-right">
+								<text class="cell-arrow">›</text>
+							</view>
+						</view>
+						<view class="hairline" v-if="idx < settings.supplements.length - 1"></view>
+					</view>
+				</view>
+
+				<view class="add-btn" @click="addSupplement" hover-class="add-btn-hover">
+					<text class="add-btn-text">＋ 添加补充剂</text>
+				</view>
+			</view>
+
+			<view class="card">
+				<view class="card-header">
+					<text class="card-title">家庭成员</text>
+					<text class="card-counter">{{ settings.parents.length }} 人</text>
+				</view>
+
+				<view class="empty-row" v-if="settings.parents.length === 0">
+					<text class="empty-row-text">暂未添加家庭成员</text>
+				</view>
+
+				<view v-else>
+					<view class="cell" v-for="(p, idx) in settings.parents" :key="p.id" @click="editParent(idx)">
+						<view class="cell-left">
+							<text class="cell-icon">{{ p.role === '爸爸' ? '👨' : (p.role === '妈妈' ? '👩' : '🧑') }}</text>
+							<view class="cell-text">
+								<text class="cell-title">{{ p.name }}</text>
+								<text class="cell-sub">{{ p.role }} · {{ p.wxId.length > 0 ? p.wxId : '未填微信号' }}</text>
+							</view>
+						</view>
+						<view class="cell-right">
+							<text class="cell-arrow">›</text>
+						</view>
+					</view>
+				</view>
+
+				<view class="add-btn" @click="addParent" hover-class="add-btn-hover">
+					<text class="add-btn-text">＋ 添加家庭成员</text>
+				</view>
+			</view>
+
+			<view class="card">
+				<view class="card-header">
+					<text class="card-title">数据备份</text>
+				</view>
+				<view class="cell" @click="onExportFile">
+					<view class="cell-left">
+						<text class="cell-icon">📤</text>
+						<view class="cell-text">
+							<text class="cell-title">导出为文件</text>
+							<text class="cell-sub">生成 .json 备份，分享到微信好友或文件传输助手</text>
+						</view>
+					</view>
+					<view class="cell-right">
+						<text class="cell-arrow">›</text>
+					</view>
+				</view>
+				<view class="hairline"></view>
+				<view class="cell" @click="onImportFile">
+					<view class="cell-left">
+						<text class="cell-icon">📂</text>
+						<view class="cell-text">
+							<text class="cell-title">从微信文件导入</text>
+							<text class="cell-sub">从微信聊天选择此前备份的 .json 文件</text>
+						</view>
+					</view>
+					<view class="cell-right">
+						<text class="cell-arrow">›</text>
+					</view>
+				</view>
+			</view>
+
+			<view class="card">
+				<view class="card-header">
+					<text class="card-title">数据同步</text>
+				</view>
+				<view class="info-row">
+					<text class="info-icon">☁️</text>
+					<view class="info-text">
+						<text class="info-title">当前为本地存储</text>
+						<text class="info-sub">云端同步尚未启用，所有数据仅保存在本机</text>
+					</view>
+				</view>
+			</view>
+
+			<view class="actions" v-if="dirty">
+				<view class="btn btn-primary" @click="onSave" hover-class="btn-primary-hover">
+					<text class="btn-primary-text">保存</text>
+				</view>
+			</view>
+
+			<view class="bottom-pad"></view>
+		</scroll-view>
+
+		<view class="modal-mask" v-if="showParentModal" @click="closeParentModal">
+			<view class="modal" @click.stop="noop">
+				<text class="modal-title">{{ editingParentIdx >= 0 ? '编辑成员' : '添加成员' }}</text>
+
+				<view class="modal-field">
+					<text class="modal-label">称呼</text>
+					<view class="role-tabs">
+						<view class="role-tab" :class="{ roleTabOn: roleInput === '爸爸' }" @click="roleInput = '爸爸'">
+							<text :style="roleInput === '爸爸' ? 'color:#FFFFFF' : 'color:#606266'">👨 爸爸</text>
+						</view>
+						<view class="role-tab" :class="{ roleTabOn: roleInput === '妈妈' }" @click="roleInput = '妈妈'">
+							<text :style="roleInput === '妈妈' ? 'color:#FFFFFF' : 'color:#606266'">👩 妈妈</text>
+						</view>
+						<view class="role-tab" :class="{ roleTabOn: roleInput === '其他' }" @click="roleInput = '其他'">
+							<text :style="roleInput === '其他' ? 'color:#FFFFFF' : 'color:#606266'">🧑 其他</text>
+						</view>
+					</view>
+				</view>
+
+				<view class="modal-field">
+					<text class="modal-label">姓名</text>
+					<input class="modal-input" v-model="nameInput" placeholder="如：张三" placeholder-style="color:#C0C4CC" />
+				</view>
+
+				<view class="modal-field">
+					<text class="modal-label">微信号</text>
+					<input class="modal-input" v-model="wxInput" placeholder="选填，用于后续同步" placeholder-style="color:#C0C4CC" />
+				</view>
+
+				<view class="modal-actions">
+					<view class="modal-btn modal-btn-cancel" @click="closeParentModal">
+						<text class="modal-btn-cancel-text">取消</text>
+					</view>
+					<view class="modal-btn modal-btn-danger" v-if="editingParentIdx >= 0" @click="onDeleteParent">
+						<text class="modal-btn-danger-text">删除</text>
+					</view>
+					<view class="modal-btn modal-btn-primary" @click="onSaveParent">
+						<text class="modal-btn-primary-text">确定</text>
+					</view>
+				</view>
+			</view>
+		</view>
+
+		<view class="modal-mask" v-if="showSuppModal" @click="closeSuppModal">
+			<view class="modal" @click.stop="noop">
+				<text class="modal-title">{{ editingSuppIdx >= 0 ? '编辑补充剂' : '添加补充剂' }}</text>
+
+				<view class="modal-field">
+					<text class="modal-label">名称</text>
+					<input class="modal-input" v-model="suppNameInput" placeholder="如：益生菌" placeholder-style="color:#C0C4CC" maxlength="20" />
+				</view>
+
+				<view class="modal-field">
+					<text class="modal-label">图标</text>
+					<view class="emoji-grid">
+						<view class="emoji-cell" v-for="ic in iconPresets" :key="ic" :class="{ emojiCellOn: suppIconInput === ic }" @click="suppIconInput = ic">
+							<text class="emoji-cell-text">{{ ic }}</text>
+						</view>
+					</view>
+				</view>
+
+				<view class="modal-field">
+					<text class="modal-label">颜色</text>
+					<view class="color-grid">
+						<view class="color-cell" v-for="c in colorPresets" :key="c" :style="'background-color:' + c" @click="suppColorInput = c">
+							<text class="color-check" v-if="suppColorInput === c">✓</text>
+						</view>
+					</view>
+				</view>
+
+				<view class="modal-field modal-field-row">
+					<text class="modal-label-inline">是否启用</text>
+					<switch :checked="suppEnabledInput" @change="onSuppEnabledChange" color="#FF6B7A" />
+				</view>
+
+				<view class="modal-actions">
+					<view class="modal-btn modal-btn-cancel" @click="closeSuppModal">
+						<text class="modal-btn-cancel-text">取消</text>
+					</view>
+					<view class="modal-btn modal-btn-danger" v-if="editingSuppIdx >= 0" @click="onDeleteSupp">
+						<text class="modal-btn-danger-text">删除</text>
+					</view>
+					<view class="modal-btn modal-btn-primary" @click="onSaveSupp">
+						<text class="modal-btn-primary-text">确定</text>
+					</view>
+				</view>
+			</view>
+		</view>
+
+		<view class="modal-mask" v-if="showBabyModal" @click="closeBabyModal">
+			<view class="modal" @click.stop="noop">
+				<text class="modal-title">{{ editingBabyIdx >= 0 ? '编辑宝宝' : '添加宝宝' }}</text>
+
+				<view class="modal-field">
+					<text class="modal-label">姓名</text>
+					<input class="modal-input" v-model="babyNameInput" placeholder="如：小宝" placeholder-style="color:#C0C4CC" maxlength="20" />
+				</view>
+
+				<view class="modal-field">
+					<text class="modal-label">出生日期</text>
+					<picker mode="date" :value="babyBirthdayInputStr" :end="todayStr" @change="onBabyBirthdayChange">
+						<view class="modal-picker-row">
+							<text class="modal-picker-value">{{ babyBirthdayInput > 0 ? getDateStr(babyBirthdayInput) : '点击选择' }}</text>
+							<text class="modal-picker-arrow">›</text>
+						</view>
+					</picker>
+				</view>
+
+				<view class="modal-field">
+					<text class="modal-label">性别</text>
+					<view class="role-tabs">
+						<view class="role-tab" :class="{ roleTabOn: babyGenderInput === '男' }" @click="babyGenderInput = '男'">
+							<text :style="babyGenderInput === '男' ? 'color:#FFFFFF' : 'color:#606266'">👦 男</text>
+						</view>
+						<view class="role-tab" :class="{ roleTabOn: babyGenderInput === '女' }" @click="babyGenderInput = '女'">
+							<text :style="babyGenderInput === '女' ? 'color:#FFFFFF' : 'color:#606266'">👧 女</text>
+						</view>
+						<view class="role-tab" :class="{ roleTabOn: babyGenderInput === '' }" @click="babyGenderInput = ''">
+							<text :style="babyGenderInput === '' ? 'color:#FFFFFF' : 'color:#606266'">👶 不设</text>
+						</view>
+					</view>
+				</view>
+
+				<view class="modal-actions">
+					<view class="modal-btn modal-btn-cancel" @click="closeBabyModal">
+						<text class="modal-btn-cancel-text">取消</text>
+					</view>
+					<view class="modal-btn modal-btn-danger" v-if="editingBabyIdx >= 0 && settings.babies.length > 1" @click="onDeleteBaby">
+						<text class="modal-btn-danger-text">删除</text>
+					</view>
+					<view class="modal-btn modal-btn-primary" @click="onSaveBaby">
+						<text class="modal-btn-primary-text">确定</text>
+					</view>
+				</view>
+			</view>
+		</view>
+	</view>
+</template>
+
+<script setup lang="uts">
+	import { loadSettings, saveSettings, exportData, importData, deleteRecordsByBaby, Settings, ParentAccount, Supplement, Baby, genId } from '@/utils/db.uts'
+	import { getDateStr, getBabyAgeStr } from '@/utils/format.uts'
+
+	const iconPresets : string[] = ['💊', '🦠', '🌿', '🧬', '🍯', '🥛', '🟢', '⭐']
+	const colorPresets : string[] = ['#FFE4E6', '#FFF3CD', '#EAD9C9', '#D6E4F0', '#DCEDC8', '#E5DEFF']
+
+	const settings = ref<Settings>(loadSettings())
+	const dirty = ref<boolean>(false)
+	const todayStr = ref<string>(getDateStr(Date.now()))
+	const todayMs = ref<number>(Date.now())
+
+	const showBabyModal = ref<boolean>(false)
+	const editingBabyIdx = ref<number>(-1)
+	const babyNameInput = ref<string>('')
+	const babyBirthdayInput = ref<number>(0)
+	const babyGenderInput = ref<string>('')
+
+	const babyBirthdayInputStr = computed<string>(() : string => {
+		if (babyBirthdayInput.value <= 0) return todayStr.value
+		return getDateStr(babyBirthdayInput.value)
+	})
+
+	function onBabyTap(idx : number) : void {
+		const b = settings.value.babies[idx]
+		if (b.id !== settings.value.currentBabyId) {
+			settings.value.currentBabyId = b.id
+			saveSettings(settings.value)
+			dirty.value = false
+			uni.showToast({ title: '已切换到 ' + b.name, icon: 'success' })
+		}
+	}
+
+	function onBabyEdit(idx : number) : void {
+		const b = settings.value.babies[idx]
+		editingBabyIdx.value = idx
+		babyNameInput.value = b.name
+		babyBirthdayInput.value = b.birthday
+		babyGenderInput.value = b.gender
+		showBabyModal.value = true
+	}
+
+	function onAddBaby() : void {
+		editingBabyIdx.value = -1
+		babyNameInput.value = ''
+		babyBirthdayInput.value = 0
+		babyGenderInput.value = ''
+		showBabyModal.value = true
+	}
+
+	function closeBabyModal() : void {
+		showBabyModal.value = false
+	}
+
+	function onBabyBirthdayChange(e : any) : void {
+		const dateStr = e.detail.value as string
+		const parts = dateStr.split('-')
+		const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]), 0, 0, 0, 0)
+		babyBirthdayInput.value = d.getTime()
+	}
+
+	function onSaveBaby() : void {
+		const n = babyNameInput.value.trim()
+		if (n.length === 0) {
+			uni.showToast({ title: '请输入姓名', icon: 'none' })
+			return
+		}
+		if (editingBabyIdx.value >= 0) {
+			const b = settings.value.babies[editingBabyIdx.value]
+			b.name = n
+			b.birthday = babyBirthdayInput.value
+			b.gender = babyGenderInput.value
+			if (b.id === settings.value.currentBabyId) {
+				settings.value.babyName = n
+				settings.value.babyBirthday = babyBirthdayInput.value
+			}
+		} else {
+			const b : Baby = {
+				id: genId(),
+				name: n,
+				birthday: babyBirthdayInput.value,
+				gender: babyGenderInput.value
+			}
+			settings.value.babies.push(b)
+		}
+		saveSettings(settings.value)
+		showBabyModal.value = false
+		uni.showToast({ title: '已保存', icon: 'success' })
+	}
+
+	function onDeleteBaby() : void {
+		if (editingBabyIdx.value < 0) return
+		if (settings.value.babies.length <= 1) {
+			uni.showToast({ title: '至少保留 1 个宝宝', icon: 'none' })
+			return
+		}
+		const b = settings.value.babies[editingBabyIdx.value]
+		uni.showModal({
+			title: '提示',
+			content: '删除 ' + b.name + ' 会同时清除其所有喂养记录，确定？',
+			success: (res) => {
+				if (res.confirm) {
+					const removedCount = deleteRecordsByBaby(b.id)
+					settings.value.babies.splice(editingBabyIdx.value, 1)
+					if (settings.value.currentBabyId === b.id) {
+						settings.value.currentBabyId = settings.value.babies[0].id
+						settings.value.babyName = settings.value.babies[0].name
+						settings.value.babyBirthday = settings.value.babies[0].birthday
+					}
+					saveSettings(settings.value)
+					showBabyModal.value = false
+					uni.showToast({ title: '已删除 ' + b.name + ' (含 ' + removedCount + ' 条记录)', icon: 'none' })
+				}
+			}
+		})
+	}
+
+	const showParentModal = ref<boolean>(false)
+	const editingParentIdx = ref<number>(-1)
+	const roleInput = ref<string>('爸爸')
+	const nameInput = ref<string>('')
+	const wxInput = ref<string>('')
+
+	function addParent() : void {
+		editingParentIdx.value = -1
+		roleInput.value = '爸爸'
+		nameInput.value = ''
+		wxInput.value = ''
+		showParentModal.value = true
+	}
+
+	function editParent(idx : number) : void {
+		const p = settings.value.parents[idx]
+		editingParentIdx.value = idx
+		roleInput.value = p.role
+		nameInput.value = p.name
+		wxInput.value = p.wxId
+		showParentModal.value = true
+	}
+
+	function closeParentModal() : void {
+		showParentModal.value = false
+	}
+
+	function noop() : void { }
+
+	function onSaveParent() : void {
+		const n = nameInput.value.trim()
+		if (n.length === 0) {
+			uni.showToast({ title: '请输入姓名', icon: 'none' })
+			return
+		}
+		if (editingParentIdx.value >= 0) {
+			const p = settings.value.parents[editingParentIdx.value]
+			p.name = n
+			p.role = roleInput.value
+			p.wxId = wxInput.value.trim()
+		} else {
+			const p : ParentAccount = {
+				id: genId(),
+				name: n,
+				role: roleInput.value,
+				wxId: wxInput.value.trim()
+			}
+			settings.value.parents.push(p)
+		}
+		dirty.value = true
+		showParentModal.value = false
+	}
+
+	function onDeleteParent() : void {
+		uni.showModal({
+			title: '提示',
+			content: '确定删除该家庭成员？',
+			success: (res) => {
+				if (res.confirm && editingParentIdx.value >= 0) {
+					settings.value.parents.splice(editingParentIdx.value, 1)
+					dirty.value = true
+					showParentModal.value = false
+				}
+			}
+		})
+	}
+
+	const showSuppModal = ref<boolean>(false)
+	const editingSuppIdx = ref<number>(-1)
+	const suppNameInput = ref<string>('')
+	const suppIconInput = ref<string>('💊')
+	const suppColorInput = ref<string>('#FFE4E6')
+	const suppEnabledInput = ref<boolean>(true)
+
+	function addSupplement() : void {
+		editingSuppIdx.value = -1
+		suppNameInput.value = ''
+		suppIconInput.value = '💊'
+		suppColorInput.value = '#FFE4E6'
+		suppEnabledInput.value = true
+		showSuppModal.value = true
+	}
+
+	function editSupplement(idx : number) : void {
+		const s = settings.value.supplements[idx]
+		editingSuppIdx.value = idx
+		suppNameInput.value = s.name
+		suppIconInput.value = s.icon
+		suppColorInput.value = s.color
+		suppEnabledInput.value = s.enabled
+		showSuppModal.value = true
+	}
+
+	function closeSuppModal() : void {
+		showSuppModal.value = false
+	}
+
+	function onSuppEnabledChange(e : any) : void {
+		suppEnabledInput.value = e.detail.value as boolean
+	}
+
+	function onSaveSupp() : void {
+		const n = suppNameInput.value.trim()
+		if (n.length === 0) {
+			uni.showToast({ title: '请输入名称', icon: 'none' })
+			return
+		}
+		if (editingSuppIdx.value >= 0) {
+			const s = settings.value.supplements[editingSuppIdx.value]
+			s.name = n
+			s.icon = suppIconInput.value
+			s.color = suppColorInput.value
+			s.enabled = suppEnabledInput.value
+		} else {
+			const s : Supplement = {
+				id: genId(),
+				name: n,
+				icon: suppIconInput.value,
+				color: suppColorInput.value,
+				enabled: suppEnabledInput.value
+			}
+			settings.value.supplements.push(s)
+		}
+		dirty.value = true
+		showSuppModal.value = false
+	}
+
+	function onDeleteSupp() : void {
+		uni.showModal({
+			title: '提示',
+			content: '删除后历史记录中该补充剂的标签也将不再显示，确定？',
+			success: (res) => {
+				if (res.confirm && editingSuppIdx.value >= 0) {
+					settings.value.supplements.splice(editingSuppIdx.value, 1)
+					dirty.value = true
+					showSuppModal.value = false
+				}
+			}
+		})
+	}
+
+	function onSave() : void {
+		saveSettings(settings.value)
+		dirty.value = false
+		uni.showToast({ title: '已保存', icon: 'success' })
+	}
+
+	function buildExportFileName() : string {
+		const d = new Date()
+		const pad = (n : number) : string => n < 10 ? '0' + n.toString() : n.toString()
+		return 'baby-records-' + d.getFullYear().toString() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + '.txt'
+	}
+
+	function onExportFile() : void {
+		const json = exportData()
+		const fileName = buildExportFileName()
+		const fs = uni.getFileSystemManager()
+		const filePath = uni.env.USER_DATA_PATH + '/' + fileName
+		try {
+			fs.writeFileSync(filePath, json, 'utf8')
+		} catch (e) {
+			const msg = e != null ? (e as any).errMsg as string : '未知错误'
+			uni.showModal({
+				title: '写入文件失败',
+				content: msg != null ? msg : '未知错误',
+				showCancel: false
+			})
+			return
+		}
+		uni.shareFileMessage({
+			filePath: filePath,
+			fileName: fileName,
+			success: () => {
+				uni.showToast({ title: '已发送', icon: 'success' })
+			},
+			fail: (err : any) => {
+				const msg = err != null && err.errMsg != null ? err.errMsg as string : '未知错误'
+				if (msg.indexOf('cancel') >= 0 || msg.indexOf('canceled') >= 0) {
+					return
+				}
+				uni.showModal({
+					title: '分享失败',
+					content: msg + '\n\n文件已生成：\n' + filePath,
+					showCancel: false
+				})
+			}
+		})
+	}
+
+	function onImportFile() : void {
+		uni.chooseMessageFile({
+			count: 1,
+			type: 'file',
+			extension: ['json', 'txt'],
+			success: (res : any) => {
+				const files = res.tempFiles as any[]
+				if (files == null || files.length === 0) {
+					uni.showToast({ title: '未选择文件', icon: 'none' })
+					return
+				}
+				const path = files[0].path as string
+				const fs = uni.getFileSystemManager()
+				fs.readFile({
+					filePath: path,
+					encoding: 'utf8',
+					success: (readRes : any) => {
+						const content = readRes.data as string
+						uni.showModal({
+							title: '确认导入',
+							content: '将覆盖当前所有记录和设置，确定？',
+							success: (mres) => {
+								if (mres.confirm) {
+									const result = importData(content)
+									if (result.ok) {
+										settings.value = loadSettings()
+										dirty.value = false
+										uni.showToast({ title: '已导入 ' + result.recordCount + ' 条', icon: 'success' })
+									} else {
+										uni.showToast({ title: result.message, icon: 'none' })
+									}
+								}
+							}
+						})
+					},
+					fail: () => {
+						uni.showToast({ title: '读取文件失败', icon: 'none' })
+					}
+				})
+			},
+			fail: () => { }
+		})
+	}
+
+</script>
+
+<style>
+	.page {
+		flex: 1;
+		flex-direction: column;
+		background-color: #F5F6FA;
+	}
+
+	.scroll-area {
+		flex: 1;
+	}
+
+	.card {
+		background-color: #FFFFFF;
+		border-radius: 20rpx;
+		margin: 20rpx 24rpx 0 24rpx;
+		padding: 24rpx 28rpx;
+		flex-direction: column;
+	}
+
+	.card-header {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0 0 12rpx 0;
+	}
+
+	.card-title {
+		font-size: 24rpx;
+		color: #909399;
+		letter-spacing: 1rpx;
+	}
+
+	.card-counter {
+		font-size: 22rpx;
+		color: #C0C4CC;
+	}
+
+	.cell {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		height: 96rpx;
+	}
+
+	.cell-left {
+		flex: 1;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.cell-icon {
+		font-size: 36rpx;
+		margin-right: 16rpx;
+	}
+
+	.cell-title {
+		font-size: 30rpx;
+		color: #303133;
+	}
+
+	.cell-text {
+		flex-direction: column;
+	}
+
+	.cell-sub {
+		font-size: 22rpx;
+		color: #909399;
+		margin-top: 2rpx;
+	}
+
+	.cell-right {
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.cell-value {
+		font-size: 28rpx;
+		color: #FF6B7A;
+		font-weight: bold;
+		margin-right: 8rpx;
+	}
+
+	.cell-arrow {
+		font-size: 36rpx;
+		color: #C0C4CC;
+	}
+
+	.hairline {
+		height: 1rpx;
+		background-color: #EBEEF5;
+		margin: 0 -8rpx;
+	}
+
+	.empty-row {
+		padding: 32rpx 0;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.empty-row-text {
+		font-size: 26rpx;
+		color: #909399;
+	}
+
+	.add-btn {
+		margin-top: 12rpx;
+		height: 80rpx;
+		border-radius: 12rpx;
+		border-width: 1rpx;
+		border-style: dashed;
+		border-color: #DCDFE6;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.add-btn-hover {
+		background-color: #F4F4F5;
+	}
+
+	.add-btn-text {
+		font-size: 26rpx;
+		color: #606266;
+	}
+
+	.info-row {
+		flex-direction: row;
+		align-items: center;
+		padding: 12rpx 0;
+	}
+
+	.info-icon {
+		font-size: 48rpx;
+		margin-right: 20rpx;
+	}
+
+	.info-text {
+		flex: 1;
+		flex-direction: column;
+	}
+
+	.info-title {
+		font-size: 28rpx;
+		color: #303133;
+		font-weight: bold;
+		margin-bottom: 4rpx;
+	}
+
+	.info-sub {
+		font-size: 22rpx;
+		color: #909399;
+	}
+
+	.actions {
+		flex-direction: column;
+		padding: 36rpx 24rpx 16rpx 24rpx;
+	}
+
+	.btn {
+		height: 92rpx;
+		border-radius: 12rpx;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		margin-bottom: 20rpx;
+	}
+
+	.btn-primary {
+		background-color: #FF6B7A;
+	}
+
+	.btn-primary-hover {
+		background-color: #E55A6A;
+	}
+
+	.btn-primary-text {
+		color: #FFFFFF;
+		font-size: 30rpx;
+		font-weight: bold;
+		letter-spacing: 2rpx;
+	}
+
+	.bottom-pad {
+		height: 60rpx;
+	}
+
+	.modal-mask {
+		position: fixed;
+		left: 0;
+		right: 0;
+		top: 0;
+		bottom: 0;
+		background-color: rgba(0, 0, 0, 0.5);
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		z-index: 999;
+	}
+
+	.modal {
+		width: 600rpx;
+		background-color: #FFFFFF;
+		border-radius: 20rpx;
+		padding: 36rpx 32rpx 24rpx 32rpx;
+		flex-direction: column;
+	}
+
+	.modal-title {
+		font-size: 32rpx;
+		font-weight: bold;
+		color: #303133;
+		margin-bottom: 24rpx;
+		text-align: center;
+	}
+
+	.modal-field {
+		flex-direction: column;
+		margin-bottom: 20rpx;
+	}
+
+	.modal-label {
+		font-size: 24rpx;
+		color: #909399;
+		margin-bottom: 10rpx;
+	}
+
+	.modal-input {
+		height: 72rpx;
+		background-color: #F5F6FA;
+		border-radius: 10rpx;
+		padding: 0 20rpx;
+		font-size: 28rpx;
+		color: #303133;
+	}
+
+	.modal-picker-row {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		height: 72rpx;
+		background-color: #F5F6FA;
+		border-radius: 10rpx;
+		padding: 0 20rpx;
+	}
+
+	.modal-picker-value {
+		font-size: 28rpx;
+		color: #303133;
+	}
+
+	.modal-picker-arrow {
+		font-size: 32rpx;
+		color: #C0C4CC;
+	}
+
+	.current-pill {
+		padding: 6rpx 18rpx;
+		background-color: #FF6B7A;
+		border-radius: 20rpx;
+		margin-right: 12rpx;
+	}
+
+	.current-pill-text {
+		font-size: 22rpx;
+		color: #FFFFFF;
+		font-weight: bold;
+	}
+
+	.baby-edit-btn {
+		width: 60rpx;
+		height: 60rpx;
+		border-radius: 30rpx;
+		background-color: #F5F6FA;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.baby-edit-icon {
+		font-size: 28rpx;
+	}
+
+	.role-tabs {
+		flex-direction: row;
+		justify-content: space-between;
+	}
+
+	.role-tab {
+		flex: 1;
+		padding: 14rpx 0;
+		background-color: #F5F6FA;
+		border-radius: 10rpx;
+		margin: 0 6rpx;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.roleTabOn {
+		background-color: #FF6B7A;
+	}
+
+	.supp-icon-wrap {
+		width: 64rpx;
+		height: 64rpx;
+		border-radius: 32rpx;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		margin-right: 16rpx;
+	}
+
+	.supp-icon {
+		font-size: 32rpx;
+	}
+
+	.emoji-grid {
+		flex-direction: row;
+		flex-wrap: wrap;
+	}
+
+	.emoji-cell {
+		width: 80rpx;
+		height: 80rpx;
+		border-radius: 12rpx;
+		background-color: #F5F6FA;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		margin-right: 12rpx;
+		margin-bottom: 12rpx;
+		border-width: 2rpx;
+		border-style: solid;
+		border-color: transparent;
+	}
+
+	.emojiCellOn {
+		background-color: #FFEEF0;
+		border-color: #FF6B7A;
+	}
+
+	.emoji-cell-text {
+		font-size: 36rpx;
+	}
+
+	.color-grid {
+		flex-direction: row;
+		flex-wrap: wrap;
+	}
+
+	.color-cell {
+		width: 64rpx;
+		height: 64rpx;
+		border-radius: 32rpx;
+		margin-right: 14rpx;
+		margin-bottom: 12rpx;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.color-check {
+		font-size: 32rpx;
+		color: #303133;
+		font-weight: bold;
+	}
+
+	.modal-field-row {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.modal-label-inline {
+		font-size: 28rpx;
+		color: #303133;
+	}
+
+	.modal-actions {
+		flex-direction: row;
+		justify-content: space-between;
+		margin-top: 16rpx;
+	}
+
+	.modal-btn {
+		flex: 1;
+		height: 80rpx;
+		border-radius: 10rpx;
+		margin: 0 6rpx;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.modal-btn-cancel {
+		background-color: #F5F6FA;
+	}
+
+	.modal-btn-cancel-text {
+		color: #606266;
+		font-size: 28rpx;
+	}
+
+	.modal-btn-danger {
+		background-color: #FFFFFF;
+		border-width: 1rpx;
+		border-style: solid;
+		border-color: #FF6B7A;
+	}
+
+	.modal-btn-danger-text {
+		color: #FF6B7A;
+		font-size: 28rpx;
+	}
+
+	.modal-btn-primary {
+		background-color: #FF6B7A;
+	}
+
+	.modal-btn-primary-text {
+		color: #FFFFFF;
+		font-size: 28rpx;
+		font-weight: bold;
+	}
+</style>

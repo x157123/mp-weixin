@@ -1,0 +1,65 @@
+{
+	"pages": [
+		{
+			"path": "pages/index/index",
+			"style": {
+				"navigationBarTitleText": "宝宝喂养记录",
+				"navigationBarBackgroundColor": "#FF6B7A",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/stats/stats",
+			"style": {
+				"navigationBarTitleText": "统计趋势",
+				"navigationBarBackgroundColor": "#FF6B7A",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/list/list",
+			"style": {
+				"navigationBarTitleText": "历史记录",
+				"navigationBarBackgroundColor": "#FF6B7A",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/record/record",
+			"style": {
+				"navigationBarTitleText": "新增记录",
+				"navigationBarBackgroundColor": "#FF6B7A",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/settings/settings",
+			"style": {
+				"navigationBarTitleText": "设置",
+				"navigationBarBackgroundColor": "#FF6B7A",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/lullaby/lullaby",
+			"style": {
+				"navigationBarTitleText": "哄睡音频",
+				"navigationBarBackgroundColor": "#FF6B7A",
+				"navigationBarTextStyle": "white"
+			}
+		}
+	],
+	"globalStyle": {
+		"navigationBarTextStyle": "white",
+		"navigationBarTitleText": "宝宝喂养记录",
+		"navigationBarBackgroundColor": "#FF6B7A",
+		"backgroundColor": "#F5F6FA"
+	},
+	"easycom": {
+		"autoscan": true,
+		"custom": {
+			"^uv-(.*)": "@/uni_modules/uv-ui-tools/components/uv-$1/uv-$1.vue"
+		}
+	},
+	"uniIdRouter": {}
+}

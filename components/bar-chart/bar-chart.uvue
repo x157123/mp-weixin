@@ -1,0 +1,157 @@
+<template>
+	<view class="bar-chart">
+		<view class="chart-header" v-if="title.length > 0">
+			<text class="chart-title">{{ title }}</text>
+			<text class="chart-summary" v-if="summary.length > 0">{{ summary }}</text>
+		</view>
+		<scroll-view class="chart-scroll" :scroll-x="needsScroll" :show-scrollbar="needsScroll">
+			<view class="chart-body" :class="{ 'chart-body-scroll': needsScroll }" :style="bodyStyle">
+				<view class="bar-col" :style="colStyle" v-for="(item, idx) in data" :key="idx">
+					<view class="bar-value-area">
+						<text class="bar-value" v-if="item.value > 0">{{ item.value }}</text>
+					</view>
+					<view class="bar-wrap">
+						<view class="bar" :style="'height:' + barHeight(item.value) + 'rpx;background-color:' + color"></view>
+					</view>
+					<text class="bar-label">{{ item.label }}</text>
+				</view>
+			</view>
+		</scroll-view>
+	</view>
+</template>
+
+<script setup lang="uts">
+	type ChartPoint = {
+		label : string
+		value : number
+	}
+
+	const props = defineProps<{
+		data : ChartPoint[]
+		title : string
+		summary : string
+		color : string
+		maxHeight : number
+		baseline : number
+	}>()
+
+	const maxValue = computed<number>(() : number => {
+		let m = 0
+		props.data.forEach((d : ChartPoint) => {
+			if (d.value > m) m = d.value
+		})
+		return m
+	})
+
+	function barHeight(v : number) : number {
+		const base = props.baseline
+		const range = maxValue.value - base
+		if (range <= 0) return 0
+		if (v <= base) return 0
+		const h = Math.round(((v - base) / range) * props.maxHeight)
+		if (v > base && h < 8) return 8
+		return h
+	}
+
+	const needsScroll = computed<boolean>(() : boolean => props.data.length > 10)
+
+	const bodyStyle = computed<string>(() : string => {
+		if (needsScroll.value) {
+			return 'width:' + (props.data.length * 60) + 'rpx'
+		}
+		return ''
+	})
+
+	const colStyle = computed<string>(() : string => {
+		if (needsScroll.value) {
+			return 'width:60rpx;flex:0 0 60rpx'
+		}
+		return ''
+	})
+</script>
+
+<style>
+	.bar-chart {
+		background-color: #FFFFFF;
+		border-radius: 28rpx;
+		padding: 28rpx 24rpx 24rpx 24rpx;
+		margin-bottom: 20rpx;
+	}
+
+	.chart-header {
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 20rpx;
+		padding: 0 8rpx;
+	}
+
+	.chart-title {
+		font-size: 30rpx;
+		font-weight: bold;
+		color: #3A3A3A;
+	}
+
+	.chart-summary {
+		font-size: 24rpx;
+		color: #999;
+	}
+
+	.chart-scroll {
+		height: 320rpx;
+		width: 100%;
+	}
+
+	.chart-body {
+		flex-direction: row;
+		align-items: flex-end;
+		justify-content: space-around;
+		height: 320rpx;
+		padding: 0 4rpx;
+	}
+
+	.chart-body-scroll {
+		justify-content: flex-start;
+	}
+
+	.bar-col {
+		flex: 1;
+		flex-direction: column;
+		align-items: center;
+		justify-content: flex-end;
+		height: 320rpx;
+	}
+
+	.bar-value-area {
+		height: 36rpx;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.bar-value {
+		font-size: 22rpx;
+		color: #888;
+	}
+
+	.bar-wrap {
+		width: 100%;
+		flex-direction: column;
+		align-items: center;
+		justify-content: flex-end;
+		flex: 1;
+	}
+
+	.bar {
+		width: 36rpx;
+		border-top-left-radius: 10rpx;
+		border-top-right-radius: 10rpx;
+		min-height: 0;
+	}
+
+	.bar-label {
+		font-size: 22rpx;
+		color: #999;
+		margin-top: 12rpx;
+	}
+</style>

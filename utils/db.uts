@@ -1,0 +1,289 @@
+export type FeedingRecord = {
+	id : string
+	timestamp : number
+	babyId : string
+	milk : number
+	temperature : number
+	height : number
+	weight : number
+	ad : boolean
+	supplementIds : string[]
+	pee : boolean
+	poo : boolean
+	note : string
+}
+
+const STORAGE_KEY = 'feeding_records_v1'
+
+function migrateRecord(r : FeedingRecord, fallbackBabyId : string) : FeedingRecord {
+	if (r.supplementIds == null) r.supplementIds = [] as string[]
+	if (r.ad && r.supplementIds.indexOf('ad') < 0) {
+		r.supplementIds.push('ad')
+	}
+	if (r.height == null) r.height = 0
+	if (r.weight == null) r.weight = 0
+	if (r.babyId == null || r.babyId.length === 0) r.babyId = fallbackBabyId
+	return r
+}
+
+export function loadAllRecords() : FeedingRecord[] {
+	const raw = uni.getStorageSync(STORAGE_KEY)
+	if (typeof raw !== 'string' || raw.length === 0) {
+		return [] as FeedingRecord[]
+	}
+	try {
+		const parsed = JSON.parse(raw) as FeedingRecord[]
+		if (parsed == null) return [] as FeedingRecord[]
+		const s = loadSettings()
+		parsed.forEach((r : FeedingRecord) => { migrateRecord(r, s.currentBabyId) })
+		return parsed
+	} catch (e) {
+		return [] as FeedingRecord[]
+	}
+}
+
+export function loadRecords() : FeedingRecord[] {
+	const all = loadAllRecords()
+	const s = loadSettings()
+	if (s.currentBabyId.length === 0) return all
+	return all.filter((r : FeedingRecord) : boolean => r.babyId === s.currentBabyId)
+}
+
+export function saveRecords(records : FeedingRecord[]) : void {
+	uni.setStorageSync(STORAGE_KEY, JSON.stringify(records))
+}
+
+export function addRecord(rec : FeedingRecord) : void {
+	const records = loadAllRecords()
+	records.push(rec)
+	records.sort((a : FeedingRecord, b : FeedingRecord) : number => b.timestamp - a.timestamp)
+	saveRecords(records)
+}
+
+export function updateRecord(rec : FeedingRecord) : void {
+	const records = loadAllRecords()
+	const idx = records.findIndex((r : FeedingRecord) : boolean => r.id === rec.id)
+	if (idx >= 0) {
+		records[idx] = rec
+		records.sort((a : FeedingRecord, b : FeedingRecord) : number => b.timestamp - a.timestamp)
+		saveRecords(records)
+	}
+}
+
+export function deleteRecord(id : string) : void {
+	const records = loadAllRecords()
+	const filtered = records.filter((r : FeedingRecord) : boolean => r.id !== id)
+	saveRecords(filtered)
+}
+
+export function deleteRecordsByBaby(babyId : string) : number {
+	const records = loadAllRecords()
+	const kept = records.filter((r : FeedingRecord) : boolean => r.babyId !== babyId)
+	const removed = records.length - kept.length
+	saveRecords(kept)
+	return removed
+}
+
+export function getRecord(id : string) : FeedingRecord | null {
+	const records = loadAllRecords()
+	const found = records.find((r : FeedingRecord) : boolean => r.id === id)
+	if (found == null) return null
+	return found as FeedingRecord
+}
+
+export function genId() : string {
+	return Date.now().toString() + Math.floor(Math.random() * 100000).toString()
+}
+
+export type ParentAccount = {
+	id : string
+	name : string
+	wxId : string
+	role : string
+}
+
+export type Supplement = {
+	id : string
+	name : string
+	icon : string
+	color : string
+	enabled : boolean
+}
+
+export type Baby = {
+	id : string
+	name : string
+	birthday : number
+	gender : string
+}
+
+export type Settings = {
+	babyName : string
+	babyBirthday : number
+	babies : Baby[]
+	currentBabyId : string
+	parents : ParentAccount[]
+	supplements : Supplement[]
+	lullabyPath : string
+}
+
+const SETTINGS_KEY = 'feeding_settings_v1'
+
+export function defaultSupplements() : Supplement[] {
+	const arr : Supplement[] = []
+	arr.push({ id: 'ad', name: '补 AD', icon: '💊', color: '#FFE4E6', enabled: true } as Supplement)
+	return arr
+}
+
+export function defaultSettings() : Settings {
+	const firstId = genId()
+	const baby : Baby = { id: firstId, name: '宝宝', birthday: 0, gender: '' }
+	const babies : Baby[] = []
+	babies.push(baby)
+	return {
+		babyName: '宝宝',
+		babyBirthday: 0,
+		babies: babies,
+		currentBabyId: firstId,
+		parents: [] as ParentAccount[],
+		supplements: defaultSupplements(),
+		lullabyPath: ''
+	} as Settings
+}
+
+export function loadSettings() : Settings {
+	const raw = uni.getStorageSync(SETTINGS_KEY)
+	if (typeof raw !== 'string' || raw.length === 0) {
+		const s = defaultSettings()
+		saveSettings(s)
+		return s
+	}
+	try {
+		const parsed = JSON.parse(raw) as Settings
+		if (parsed == null) {
+			const s = defaultSettings()
+			saveSettings(s)
+			return s
+		}
+		if (parsed.parents == null) parsed.parents = [] as ParentAccount[]
+		if (parsed.babyName == null || parsed.babyName.length === 0) parsed.babyName = '宝宝'
+		if (parsed.supplements == null || parsed.supplements.length === 0) {
+			parsed.supplements = defaultSupplements()
+		}
+		if (parsed.babies == null || parsed.babies.length === 0) {
+			const legacyId = genId()
+			const legacy : Baby = {
+				id: legacyId,
+				name: parsed.babyName,
+				birthday: parsed.babyBirthday != null ? parsed.babyBirthday : 0,
+				gender: ''
+			}
+			parsed.babies = [] as Baby[]
+			parsed.babies.push(legacy)
+			parsed.currentBabyId = legacyId
+		}
+		if (parsed.currentBabyId == null || parsed.currentBabyId.length === 0) {
+			parsed.currentBabyId = parsed.babies[0].id
+		}
+		const exists = parsed.babies.some((b : Baby) : boolean => b.id === parsed.currentBabyId)
+		if (!exists) parsed.currentBabyId = parsed.babies[0].id
+		if (parsed.lullabyPath == null) parsed.lullabyPath = ''
+		return parsed
+	} catch (e) {
+		const s = defaultSettings()
+		saveSettings(s)
+		return s
+	}
+}
+
+export function saveSettings(s : Settings) : void {
+	uni.setStorageSync(SETTINGS_KEY, JSON.stringify(s))
+}
+
+export function getCurrentBaby(s : Settings) : Baby | null {
+	const found = s.babies.find((b : Baby) : boolean => b.id === s.currentBabyId)
+	if (found == null) return null
+	return found as Baby
+}
+
+export function findSupplement(supplements : Supplement[], id : string) : Supplement | null {
+	const found = supplements.find((s : Supplement) : boolean => s.id === id)
+	if (found == null) return null
+	return found as Supplement
+}
+
+export type ExportPayload = {
+	version : number
+	exportedAt : number
+	records : FeedingRecord[]
+	settings : Settings
+}
+
+export function exportData() : string {
+	const payload : ExportPayload = {
+		version: 1,
+		exportedAt: Date.now(),
+		records: loadAllRecords(),
+		settings: loadSettings()
+	}
+	return JSON.stringify(payload)
+}
+
+export type ImportResult = {
+	ok : boolean
+	message : string
+	recordCount : number
+}
+
+export function importData(jsonStr : string) : ImportResult {
+	const trimmed = jsonStr.trim()
+	if (trimmed.length === 0) {
+		return { ok: false, message: '内容为空', recordCount: 0 } as ImportResult
+	}
+	try {
+		const parsed = JSON.parse(trimmed) as ExportPayload
+		if (parsed == null) {
+			return { ok: false, message: '无法解析 JSON', recordCount: 0 } as ImportResult
+		}
+		if (parsed.records == null) {
+			return { ok: false, message: '缺少 records 字段', recordCount: 0 } as ImportResult
+		}
+		if (parsed.settings != null) {
+			if (parsed.settings.parents == null) parsed.settings.parents = [] as ParentAccount[]
+			if (parsed.settings.supplements == null || parsed.settings.supplements.length === 0) {
+				parsed.settings.supplements = defaultSupplements()
+			}
+			if (parsed.settings.babyName == null || parsed.settings.babyName.length === 0) {
+				parsed.settings.babyName = '宝宝'
+			}
+			if (parsed.settings.babies == null || parsed.settings.babies.length === 0) {
+				const legacyId = genId()
+				const legacy : Baby = {
+					id: legacyId,
+					name: parsed.settings.babyName,
+					birthday: parsed.settings.babyBirthday != null ? parsed.settings.babyBirthday : 0,
+					gender: ''
+				}
+				parsed.settings.babies = [] as Baby[]
+				parsed.settings.babies.push(legacy)
+				parsed.settings.currentBabyId = legacyId
+			}
+			if (parsed.settings.currentBabyId == null || parsed.settings.currentBabyId.length === 0) {
+				parsed.settings.currentBabyId = parsed.settings.babies[0].id
+			}
+			if (parsed.settings.lullabyPath == null) parsed.settings.lullabyPath = ''
+			saveSettings(parsed.settings)
+		}
+		const fallbackId = loadSettings().currentBabyId
+		parsed.records.forEach((r : FeedingRecord) => { migrateRecord(r, fallbackId) })
+		saveRecords(parsed.records)
+		return { ok: true, message: '导入成功', recordCount: parsed.records.length } as ImportResult
+	} catch (e) {
+		return { ok: false, message: 'JSON 格式错误', recordCount: 0 } as ImportResult
+	}
+}
+
+export function clearAllData() : void {
+	uni.removeStorageSync(STORAGE_KEY)
+	uni.removeStorageSync(SETTINGS_KEY)
+}
