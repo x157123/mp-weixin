@@ -8,7 +8,7 @@
 			<view class="chart-body" :class="{ 'chart-body-scroll': needsScroll }" :style="bodyStyle">
 				<view class="bar-col" :style="colStyle" v-for="(item, idx) in data" :key="idx">
 					<view class="bar-value-area">
-						<text class="bar-value" v-if="item.value > 0">{{ item.value }}</text>
+						<text class="bar-value" v-if="cellText(item).length > 0">{{ cellText(item) }}</text>
 					</view>
 					<view class="bar-wrap">
 						<view class="bar" :style="'height:' + barHeight(item.value) + 'rpx;background-color:' + color"></view>
@@ -24,6 +24,8 @@
 	type ChartPoint = {
 		label : string
 		value : number
+		// 柱顶显示文本；为空时回退显示 value。按月时用于显示 "合计/日均"
+		text : string
 	}
 
 	const props = defineProps<{
@@ -33,7 +35,15 @@
 		color : string
 		maxHeight : number
 		baseline : number
+		colWidth : number
 	}>()
+
+	// 柱顶文本：优先 text，否则在 value>0 时显示数值
+	function cellText(item : ChartPoint) : string {
+		if (item.text != null && item.text.length > 0) return item.text
+		if (item.value > 0) return item.value.toString()
+		return ''
+	}
 
 	const maxValue = computed<number>(() : number => {
 		let m = 0
@@ -53,18 +63,20 @@
 		return h
 	}
 
-	const needsScroll = computed<boolean>(() : boolean => props.data.length > 10)
+	const colW = computed<number>(() : number => props.colWidth > 0 ? props.colWidth : 60)
+
+	const needsScroll = computed<boolean>(() : boolean => props.data.length * colW.value > 680)
 
 	const bodyStyle = computed<string>(() : string => {
 		if (needsScroll.value) {
-			return 'width:' + (props.data.length * 60) + 'rpx'
+			return 'width:' + (props.data.length * colW.value) + 'rpx'
 		}
 		return ''
 	})
 
 	const colStyle = computed<string>(() : string => {
 		if (needsScroll.value) {
-			return 'width:60rpx;flex:0 0 60rpx'
+			return 'width:' + colW.value + 'rpx;flex:0 0 ' + colW.value + 'rpx'
 		}
 		return ''
 	})
@@ -130,8 +142,9 @@
 	}
 
 	.bar-value {
-		font-size: 22rpx;
+		font-size: 20rpx;
 		color: #888;
+		white-space: nowrap;
 	}
 
 	.bar-wrap {

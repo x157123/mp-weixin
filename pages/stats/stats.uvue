@@ -16,9 +16,6 @@
 						<view class="period-tab" :class="{ active: isDay(30) }" @click="setDay(30)">
 							<text class="period-tab-text" :style="isDay(30) ? 'color:#FFFFFF;font-weight:bold' : 'color:#7A7A7A'">近 30 天</text>
 						</view>
-						<view class="period-tab" :class="{ active: isDay(90) }" @click="setDay(90)">
-							<text class="period-tab-text" :style="isDay(90) ? 'color:#FFFFFF;font-weight:bold' : 'color:#7A7A7A'">近 90 天</text>
-						</view>
 						<view class="period-tab" :class="{ active: isMonth() }" @click="setMonth()">
 							<text class="period-tab-text" :style="isMonth() ? 'color:#FFFFFF;font-weight:bold' : 'color:#7A7A7A'">按月</text>
 						</view>
@@ -58,6 +55,7 @@
 					:data="milkSeries"
 					:maxHeight="220"
 					:baseline="0"
+					:colWidth="chartColWidth"
 				/>
 				<bar-chart
 					:title="unitPrefix + '喂奶次数'"
@@ -66,6 +64,7 @@
 					:data="feedCountSeries"
 					:maxHeight="220"
 					:baseline="0"
+					:colWidth="chartColWidth"
 				/>
 				<bar-chart
 					:title="unitPrefix + '大便'"
@@ -74,6 +73,7 @@
 					:data="pooSeries"
 					:maxHeight="220"
 					:baseline="0"
+					:colWidth="chartColWidth"
 				/>
 				<bar-chart
 					:title="unitPrefix + '小便'"
@@ -82,6 +82,7 @@
 					:data="peeSeries"
 					:maxHeight="220"
 					:baseline="0"
+					:colWidth="chartColWidth"
 				/>
 
 				<bar-chart
@@ -92,8 +93,9 @@
 					:data="heightSeries"
 					:maxHeight="220"
 					:baseline="heightBaseline"
+					:colWidth="60"
 				/>
-				
+
 				<bar-chart
 					v-if="weightSeries.length > 0"
 					title="体重趋势 (kg)"
@@ -102,6 +104,7 @@
 					:data="weightSeries"
 					:maxHeight="220"
 					:baseline="weightBaseline"
+					:colWidth="60"
 				/>
 
 
@@ -147,6 +150,21 @@
 	type ChartPoint = {
 		label : string
 		value : number
+		// 柱顶显示文本（按月时为 "合计/日均"，按天为空表示直接显示数值）
+		text : string
+	}
+
+	// 单遍聚合的结果：4 个指标的每桶序列 + 总计 + 范围内有喂奶数据的天数
+	type StatsAgg = {
+		milk : ChartPoint[]
+		feed : ChartPoint[]
+		poo : ChartPoint[]
+		pee : ChartPoint[]
+		totalMilk : number
+		totalFeeds : number
+		totalPoo : number
+		totalPee : number
+		milkDays : number
 	}
 
 	// 一个统计桶：[start, end) 时间区间 + 显示标签。按天时每天一个桶，按月时每月一个桶。
@@ -219,85 +237,149 @@
 		return arr
 	})
 
-	const milkSeries = computed<ChartPoint[]>(() : ChartPoint[] => {
-		return buckets.value.map((b : Bucket) : ChartPoint => {
-			let sum = 0
-			records.value.forEach((r : FeedingRecord) => {
-				if (r.timestamp >= b.start && r.timestamp < b.end) sum += r.milk
-			})
-			return { label: b.label, value: sum } as ChartPoint
+	// 月视图柱子较宽以容纳 "合计/日均" 文本，日视图保持窄柱
+	const chartColWidth = computed<number>(() : number => viewMode.value === 'month' ? 110 : 60)
+
+	function mapSize(m : Map<number, boolean>) : number {
+		let c = 0
+		m.forEach(() => { c++ })
+		return c
+	}
+
+	// —— 单遍聚合 ——
+	// 记录只遍历一次，用 O(1) 把每条记录落到对应桶里累加，避免「桶数 × 记录数 × 指标数」的重复全量扫描。
+	// 按天视图不创建 Date、不做按天去重（那只在按月日均时才需要）。
+	const statsData = computed<StatsAgg>(() : StatsAgg => {
+		const bks = buckets.value
+		const n = bks.length
+		const isMonth = viewMode.value === 'month'
+
+		const milkSum : number[] = []
+		const feedCnt : number[] = []
+		const pooCnt : number[] = []
+		const peeCnt : number[] = []
+		// 仅按月时需要按桶统计「有数据天数」用于日均；feed 与 milk 同源，共用 milkDaySets
+		const milkDaySets : Map<number, boolean>[] = []
+		const pooDaySets : Map<number, boolean>[] = []
+		const peeDaySets : Map<number, boolean>[] = []
+		for (let i = 0; i < n; i++) {
+			milkSum.push(0)
+			feedCnt.push(0)
+			pooCnt.push(0)
+			peeCnt.push(0)
+			if (isMonth) {
+				milkDaySets.push(new Map<number, boolean>())
+				pooDaySets.push(new Map<number, boolean>())
+				peeDaySets.push(new Map<number, boolean>())
+			}
+		}
+
+		const firstStart = n > 0 ? bks[0].start : 0
+		let baseY = 0
+		let baseM = 0
+		if (isMonth && n > 0) {
+			const bd = new Date(firstStart)
+			baseY = bd.getFullYear()
+			baseM = bd.getMonth()
+		}
+		// 整个范围内有喂奶数据的天数（忽略无数据日期），用于汇总卡片日均
+		const milkRangeDays : Map<number, boolean> = new Map<number, boolean>()
+
+		records.value.forEach((r : FeedingRecord) => {
+			let idx = -1
+			let dayKey = 0
+			if (isMonth) {
+				const dt = new Date(r.timestamp)
+				idx = (dt.getFullYear() - baseY) * 12 + (dt.getMonth() - baseM)
+				dayKey = getStartOfDay(r.timestamp)
+			} else {
+				idx = Math.floor((r.timestamp - firstStart) / 86400000)
+				dayKey = firstStart + idx * 86400000
+			}
+			if (idx < 0 || idx >= n) return
+
+			if (r.milk > 0) {
+				milkSum[idx] += r.milk
+				feedCnt[idx] += 1
+				milkRangeDays.set(dayKey, true)
+				if (isMonth) milkDaySets[idx].set(dayKey, true)
+			}
+			if (r.poo) {
+				pooCnt[idx] += 1
+				if (isMonth) pooDaySets[idx].set(dayKey, true)
+			}
+			if (r.pee) {
+				peeCnt[idx] += 1
+				if (isMonth) peeDaySets[idx].set(dayKey, true)
+			}
 		})
+
+		const milk : ChartPoint[] = []
+		const feed : ChartPoint[] = []
+		const poo : ChartPoint[] = []
+		const pee : ChartPoint[] = []
+		let tMilk = 0
+		let tFeed = 0
+		let tPoo = 0
+		let tPee = 0
+		for (let i = 0; i < n; i++) {
+			const lbl = bks[i].label
+			tMilk += milkSum[i]
+			tFeed += feedCnt[i]
+			tPoo += pooCnt[i]
+			tPee += peeCnt[i]
+			let milkText = ''
+			let feedText = ''
+			let pooText = ''
+			let peeText = ''
+			if (isMonth) {
+				const md = mapSize(milkDaySets[i])
+				if (milkSum[i] > 0) milkText = milkSum[i].toString() + '/' + (md > 0 ? Math.round(milkSum[i] / md) : 0).toString()
+				if (feedCnt[i] > 0) feedText = feedCnt[i].toString() + '/' + (md > 0 ? Math.round(feedCnt[i] / md) : 0).toString()
+				const pd = mapSize(pooDaySets[i])
+				if (pooCnt[i] > 0) pooText = pooCnt[i].toString() + '/' + (pd > 0 ? Math.round(pooCnt[i] / pd) : 0).toString()
+				const ed = mapSize(peeDaySets[i])
+				if (peeCnt[i] > 0) peeText = peeCnt[i].toString() + '/' + (ed > 0 ? Math.round(peeCnt[i] / ed) : 0).toString()
+			}
+			milk.push({ label: lbl, value: milkSum[i], text: milkText } as ChartPoint)
+			feed.push({ label: lbl, value: feedCnt[i], text: feedText } as ChartPoint)
+			poo.push({ label: lbl, value: pooCnt[i], text: pooText } as ChartPoint)
+			pee.push({ label: lbl, value: peeCnt[i], text: peeText } as ChartPoint)
+		}
+
+		return {
+			milk: milk,
+			feed: feed,
+			poo: poo,
+			pee: pee,
+			totalMilk: tMilk,
+			totalFeeds: tFeed,
+			totalPoo: tPoo,
+			totalPee: tPee,
+			milkDays: mapSize(milkRangeDays)
+		} as StatsAgg
 	})
 
-	const feedCountSeries = computed<ChartPoint[]>(() : ChartPoint[] => {
-		return buckets.value.map((b : Bucket) : ChartPoint => {
-			let c = 0
-			records.value.forEach((r : FeedingRecord) => {
-				if (r.timestamp >= b.start && r.timestamp < b.end && r.milk > 0) c++
-			})
-			return { label: b.label, value: c } as ChartPoint
-		})
-	})
+	const milkSeries = computed<ChartPoint[]>(() : ChartPoint[] => statsData.value.milk)
+	const feedCountSeries = computed<ChartPoint[]>(() : ChartPoint[] => statsData.value.feed)
+	const pooSeries = computed<ChartPoint[]>(() : ChartPoint[] => statsData.value.poo)
+	const peeSeries = computed<ChartPoint[]>(() : ChartPoint[] => statsData.value.pee)
 
-	const pooSeries = computed<ChartPoint[]>(() : ChartPoint[] => {
-		return buckets.value.map((b : Bucket) : ChartPoint => {
-			let c = 0
-			records.value.forEach((r : FeedingRecord) => {
-				if (r.timestamp >= b.start && r.timestamp < b.end && r.poo) c++
-			})
-			return { label: b.label, value: c } as ChartPoint
-		})
-	})
-
-	const peeSeries = computed<ChartPoint[]>(() : ChartPoint[] => {
-		return buckets.value.map((b : Bucket) : ChartPoint => {
-			let c = 0
-			records.value.forEach((r : FeedingRecord) => {
-				if (r.timestamp >= b.start && r.timestamp < b.end && r.pee) c++
-			})
-			return { label: b.label, value: c } as ChartPoint
-		})
-	})
-
-	const totalMilk = computed<number>(() : number => {
-		let s = 0
-		milkSeries.value.forEach((p : ChartPoint) => { s += p.value })
-		return s
-	})
-
-	const totalFeeds = computed<number>(() : number => {
-		let s = 0
-		feedCountSeries.value.forEach((p : ChartPoint) => { s += p.value })
-		return s
-	})
-
-	const totalPoo = computed<number>(() : number => {
-		let s = 0
-		pooSeries.value.forEach((p : ChartPoint) => { s += p.value })
-		return s
-	})
-
-	const totalPee = computed<number>(() : number => {
-		let s = 0
-		peeSeries.value.forEach((p : ChartPoint) => { s += p.value })
-		return s
-	})
-
-	// 当前视图覆盖的总天数（用于日均计算）：按天为 period，按月为各月天数之和
-	const rangeDays = computed<number>(() : number => {
-		if (buckets.value.length === 0) return 0
-		const first = buckets.value[0].start
-		const last = buckets.value[buckets.value.length - 1].end
-		const d = Math.round((last - first) / 86400000)
-		return d < 1 ? 1 : d
-	})
+	const totalMilk = computed<number>(() : number => statsData.value.totalMilk)
+	const totalFeeds = computed<number>(() : number => statsData.value.totalFeeds)
+	const totalPoo = computed<number>(() : number => statsData.value.totalPoo)
+	const totalPee = computed<number>(() : number => statsData.value.totalPee)
 
 	const avgDaily = computed<number>(() : number => {
-		return Math.round(totalMilk.value / rangeDays.value)
+		const d = statsData.value.milkDays
+		if (d === 0) return 0
+		return Math.round(statsData.value.totalMilk / d)
 	})
 
 	const avgFeedsPerDay = computed<string>(() : string => {
-		return (totalFeeds.value / rangeDays.value).toFixed(1)
+		const d = statsData.value.milkDays
+		if (d === 0) return '0'
+		return (statsData.value.totalFeeds / d).toFixed(1)
 	})
 
 	const tempReadings = computed<FeedingRecord[]>(() : FeedingRecord[] => {
@@ -328,7 +410,7 @@
 		for (let i = records.value.length - 1; i >= 0; i--) {
 			const r = records.value[i]
 			if (r.height > 0) {
-				arr.push({ label: getMonthDayStr(r.timestamp), value: r.height } as ChartPoint)
+				arr.push({ label: getMonthDayStr(r.timestamp), value: r.height, text: '' } as ChartPoint)
 			}
 		}
 		return arr
@@ -339,7 +421,7 @@
 		for (let i = records.value.length - 1; i >= 0; i--) {
 			const r = records.value[i]
 			if (r.weight > 0) {
-				arr.push({ label: getMonthDayStr(r.timestamp), value: r.weight } as ChartPoint)
+				arr.push({ label: getMonthDayStr(r.timestamp), value: r.weight, text: '' } as ChartPoint)
 			}
 		}
 		return arr
