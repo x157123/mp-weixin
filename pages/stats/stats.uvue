@@ -455,8 +455,8 @@
 		const r = latestGrowth.value
 		if (r == null) return '—'
 		const parts : string[] = []
-		if (r.height > 0) parts.push(r.height.toFixed(1) + 'cm')
-		if (r.weight > 0) parts.push(r.weight.toFixed(1) + 'kg')
+		if (r.height > 0) parts.push(r.height.toFixed(2) + 'cm')
+		if (r.weight > 0) parts.push(r.weight.toFixed(2) + 'kg')
 		return parts.join(' · ')
 	})
 

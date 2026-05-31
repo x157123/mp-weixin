@@ -64,7 +64,7 @@
 				<view class="card-header">
 					<text class="card-title">身高 · 体重</text>
 				</view>
-				<picker mode="selector" :range="heightOptions" :value="heightInitIndex" @change="onHeightChange">
+				<picker mode="multiSelector" :range="heightRange" :value="heightInitSel" @change="onHeightChange">
 					<view class="cell">
 						<view class="cell-left">
 							<text class="cell-icon">📏</text>
@@ -77,7 +77,7 @@
 					</view>
 				</picker>
 				<view class="hairline"></view>
-				<picker mode="selector" :range="weightOptions" :value="weightInitIndex" @change="onWeightChange">
+				<picker mode="multiSelector" :range="weightRange" :value="weightInitSel" @change="onWeightChange">
 					<view class="cell">
 						<view class="cell-left">
 							<text class="cell-icon">⚖️</text>
@@ -195,38 +195,57 @@
 		return arr
 	}
 
-	function buildHeightOptions() : string[] {
+	// 身高整数部分：40 ~ 180 cm（index 0 = 未记录，index 1 -> 40）
+	function buildHeightIntOptions() : string[] {
 		const arr : string[] = []
 		arr.push('未记录')
-		for (let i = 600; i <= 1800; i += 5) {
-			arr.push((i / 10).toFixed(1) + ' cm')
+		for (let i = 40; i <= 180; i++) {
+			arr.push(i.toString())
 		}
 		return arr
 	}
 
-	function buildWeightOptions() : string[] {
+	// 体重整数部分：1 ~ 30 kg（index 0 = 未记录，index 1 -> 1）
+	function buildWeightIntOptions() : string[] {
 		const arr : string[] = []
 		arr.push('未记录')
-		for (let i = 20; i <= 250; i++) {
-			arr.push((i / 10).toFixed(1) + ' kg')
+		for (let i = 1; i <= 30; i++) {
+			arr.push(i.toString())
+		}
+		return arr
+	}
+
+	// 小数点后两位独立下拉框：.00 ~ .99（身高/体重共用）
+	function buildDecOptions() : string[] {
+		const arr : string[] = []
+		for (let d = 0; d <= 99; d++) {
+			arr.push('.' + (d < 10 ? '0' + d.toString() : d.toString()))
 		}
 		return arr
 	}
 
 	const milkOptions = ref<string[]>(buildMilkOptions())
 	const tempOptions = ref<string[]>(buildTempOptions())
-	const heightOptions = ref<string[]>(buildHeightOptions())
-	const weightOptions = ref<string[]>(buildWeightOptions())
+	const heightIntOptions = ref<string[]>(buildHeightIntOptions())
+	const weightIntOptions = ref<string[]>(buildWeightIntOptions())
+	const decOptions = ref<string[]>(buildDecOptions())
+
+	// 多列选择器：第 1 列整数，第 2 列小数点后两位，点一次即可在同一弹层选完
+	const heightRange = computed<string[][]>(() : string[][] => [heightIntOptions.value, decOptions.value])
+	const weightRange = computed<string[][]>(() : string[][] => [weightIntOptions.value, decOptions.value])
 
 	const milkIndex = ref<number>(0)
 	const tempIndex = ref<number>(0)
-	const heightIndex = ref<number>(0)
-	const weightIndex = ref<number>(0)
+	const heightIntIndex = ref<number>(0)
+	const heightDecIndex = ref<number>(0)
+	const weightIntIndex = ref<number>(0)
+	const weightDecIndex = ref<number>(0)
 
 	const milkInitIndex = ref<number>(12)
 	const tempInitIndex = ref<number>(0)
-	const heightInitIndex = ref<number>(0)
-	const weightInitIndex = ref<number>(0)
+	// 多列选择器的初始定位 [整数列, 小数列]
+	const heightInitSel = ref<number[]>([0, 0])
+	const weightInitSel = ref<number[]>([0, 0])
 
 	const pee = ref<boolean>(false)
 	const poo = ref<boolean>(false)
@@ -245,15 +264,19 @@
 	})
 
 	const heightDisplay = computed<string>(() : string => {
-		const idx = heightIndex.value
-		if (idx <= 0 || idx >= heightOptions.value.length) return '未记录'
-		return heightOptions.value[idx]
+		const i = heightIntIndex.value
+		if (i <= 0 || i >= heightIntOptions.value.length) return '未记录'
+		let d = heightDecIndex.value
+		if (d < 0 || d >= decOptions.value.length) d = 0
+		return heightIntOptions.value[i] + decOptions.value[d] + ' cm'
 	})
 
 	const weightDisplay = computed<string>(() : string => {
-		const idx = weightIndex.value
-		if (idx <= 0 || idx >= weightOptions.value.length) return '未记录'
-		return weightOptions.value[idx]
+		const i = weightIntIndex.value
+		if (i <= 0 || i >= weightIntOptions.value.length) return '未记录'
+		let d = weightDecIndex.value
+		if (d < 0 || d >= decOptions.value.length) d = 0
+		return weightIntOptions.value[i] + decOptions.value[d] + ' kg'
 	})
 
 	function onDateChange(e : any) : void {
@@ -277,15 +300,21 @@
 	}
 
 	function onHeightChange(e : any) : void {
-		const idx = parseInt(e.detail.value as string)
-		heightIndex.value = idx
-		heightInitIndex.value = idx
+		const vals = e.detail.value as number[]
+		const i = vals[0]
+		const d = vals[1]
+		heightIntIndex.value = i
+		heightDecIndex.value = d
+		heightInitSel.value = [i, d]
 	}
 
 	function onWeightChange(e : any) : void {
-		const idx = parseInt(e.detail.value as string)
-		weightIndex.value = idx
-		weightInitIndex.value = idx
+		const vals = e.detail.value as number[]
+		const i = vals[0]
+		const d = vals[1]
+		weightIntIndex.value = i
+		weightDecIndex.value = d
+		weightInitSel.value = [i, d]
 	}
 
 	function getMilkValue() : number {
@@ -299,13 +328,15 @@
 	}
 
 	function getHeightValue() : number {
-		if (heightIndex.value <= 0) return 0
-		return (600 + (heightIndex.value - 1) * 5) / 10
+		if (heightIntIndex.value <= 0) return 0
+		const intPart = heightIntIndex.value + 39 // index 1 -> 40 cm
+		return intPart + heightDecIndex.value / 100
 	}
 
 	function getWeightValue() : number {
-		if (weightIndex.value <= 0) return 0
-		return (20 + (weightIndex.value - 1)) / 10
+		if (weightIntIndex.value <= 0) return 0
+		const intPart = weightIntIndex.value // index 1 -> 1 kg
+		return intPart + weightDecIndex.value / 100
 	}
 
 	function tempToIndex(t : number) : number {
@@ -316,24 +347,34 @@
 		return offset + 1
 	}
 
-	function heightToIndex(h : number) : number {
+	function heightToIntIndex(h : number) : number {
 		if (h <= 0) return 0
-		const offset = Math.round(h * 10) - 600
-		if (offset < 0) return 0
-		const idx = Math.round(offset / 5) + 1
-		const maxIdx = heightOptions.value.length - 1
-		if (idx > maxIdx) return maxIdx
-		return idx
+		const total = Math.round(h * 100)
+		let intPart = Math.floor(total / 100)
+		if (intPart < 40) intPart = 40
+		if (intPart > 180) intPart = 180
+		return intPart - 39 // 40 cm -> index 1
 	}
 
-	function weightToIndex(w : number) : number {
+	function heightToDecIndex(h : number) : number {
+		if (h <= 0) return 0
+		const total = Math.round(h * 100)
+		return total % 100
+	}
+
+	function weightToIntIndex(w : number) : number {
 		if (w <= 0) return 0
-		const offset = Math.round(w * 10) - 20
-		if (offset < 0) return 0
-		const idx = offset + 1
-		const maxIdx = weightOptions.value.length - 1
-		if (idx > maxIdx) return maxIdx
-		return idx
+		const total = Math.round(w * 100)
+		let intPart = Math.floor(total / 100)
+		if (intPart < 1) intPart = 1
+		if (intPart > 30) intPart = 30
+		return intPart // 1 kg -> index 1
+	}
+
+	function weightToDecIndex(w : number) : number {
+		if (w <= 0) return 0
+		const total = Math.round(w * 100)
+		return total % 100
 	}
 
 	function milkToIndex(m : number) : number {
@@ -419,12 +460,18 @@
 		timeStr.value = getTimeStr(rec.timestamp)
 		milkIndex.value = milkToIndex(rec.milk)
 		tempIndex.value = tempToIndex(rec.temperature)
-		heightIndex.value = heightToIndex(rec.height)
-		weightIndex.value = weightToIndex(rec.weight)
+		const hi = heightToIntIndex(rec.height)
+		const hd = heightToDecIndex(rec.height)
+		const wi = weightToIntIndex(rec.weight)
+		const wd = weightToDecIndex(rec.weight)
+		heightIntIndex.value = hi
+		heightDecIndex.value = hd
+		weightIntIndex.value = wi
+		weightDecIndex.value = wd
 		milkInitIndex.value = milkIndex.value
 		tempInitIndex.value = tempIndex.value
-		heightInitIndex.value = heightIndex.value
-		weightInitIndex.value = weightIndex.value
+		heightInitSel.value = [hi, hd]
+		weightInitSel.value = [wi, wd]
 		if (rec.supplementIds != null) {
 			supplementIds.value = rec.supplementIds.slice(0)
 		} else if (rec.ad) {
@@ -456,11 +503,11 @@
 				tempFound = true
 			}
 			if (!heightFound && r.height > 0) {
-				heightInitIndex.value = heightToIndex(r.height)
+				heightInitSel.value = [heightToIntIndex(r.height), heightToDecIndex(r.height)]
 				heightFound = true
 			}
 			if (!weightFound && r.weight > 0) {
-				weightInitIndex.value = weightToIndex(r.weight)
+				weightInitSel.value = [weightToIntIndex(r.weight), weightToDecIndex(r.weight)]
 				weightFound = true
 			}
 			if (milkFound && tempFound && heightFound && weightFound) break

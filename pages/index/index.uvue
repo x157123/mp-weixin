@@ -77,8 +77,8 @@
 						<view class="record-row1">
 							<text class="record-milk" v-if="rec.milk > 0">🍼 {{ rec.milk }}ml</text>
 							<text class="record-temp" v-if="rec.temperature > 0">🌡️ {{ rec.temperature.toFixed(1) }}°C</text>
-							<text class="record-temp" v-if="rec.height > 0">📏 {{ rec.height.toFixed(1) }}cm</text>
-							<text class="record-temp" v-if="rec.weight > 0">⚖️ {{ rec.weight.toFixed(1) }}kg</text>
+							<text class="record-temp" v-if="rec.height > 0">📏 {{ rec.height.toFixed(2) }}cm</text>
+							<text class="record-temp" v-if="rec.weight > 0">⚖️ {{ rec.weight.toFixed(2) }}kg</text>
 							<text class="record-placeholder" v-if="rec.milk === 0 && rec.temperature === 0 && rec.height === 0 && rec.weight === 0">—</text>
 						</view>
 						<view class="record-tags" v-if="hasAnyTag(rec)">
