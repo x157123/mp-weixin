@@ -142,6 +142,7 @@
 
 <script setup lang="uts">
 	import { addRecord, updateRecord, deleteRecord, getRecord, loadRecords, loadSettings, genId, FeedingRecord, Settings, Supplement } from '@/utils/db.uts'
+	import { scheduleAutoSync } from '@/utils/sync.uts'
 	import { getDateStr, getTimeStr, parseDateTime } from '@/utils/format.uts'
 
 	const settings = ref<Settings>(loadSettings())
@@ -413,6 +414,7 @@
 				note: note.value
 			}
 			updateRecord(rec)
+			scheduleAutoSync()
 			uni.showToast({ title: '已保存', icon: 'success' })
 		} else {
 			const rec : FeedingRecord = {
@@ -430,6 +432,7 @@
 				note: note.value
 			}
 			addRecord(rec)
+			scheduleAutoSync()
 			uni.showToast({ title: '已添加', icon: 'success' })
 		}
 		setTimeout(() => {
@@ -444,6 +447,7 @@
 			success: (res) => {
 				if (res.confirm) {
 					deleteRecord(editingId.value)
+					scheduleAutoSync()
 					uni.showToast({ title: '已删除', icon: 'success' })
 					setTimeout(() => {
 						uni.navigateBack({})

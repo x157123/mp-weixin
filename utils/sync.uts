@@ -1,4 +1,4 @@
-import { exportData, importData, ImportResult } from './db.uts'
+import { exportData, importData, dataFingerprint, ImportResult } from './db.uts'
 
 /**
  * 同步服务器地址。
@@ -144,6 +144,7 @@ export function syncToCloud(done : (res : SyncResult) => void) : void {
 			return
 		}
 		const payloadStr = exportData()
+		const fpBefore = dataFingerprint()
 		postJson('/api/sync/upload', { openid: id.openid, token: id.token, payload: payloadStr } as UTSJSONObject, (status : number, data : UTSJSONObject | null, errMsg : string) => {
 			if (status === -1) {
 				done({ ok: false, message: '无法连接服务器：' + errMsg } as SyncResult)
@@ -160,9 +161,14 @@ export function syncToCloud(done : (res : SyncResult) => void) : void {
 			}
 			const merged = data.get('payload')
 			if (merged != null) {
-				const mergedStr = JSON.stringify(merged)
-				if (mergedStr != null) {
-					importData(mergedStr)
+				if (dataFingerprint() === fpBefore) {
+					const mergedStr = JSON.stringify(merged)
+					if (mergedStr != null) {
+						importData(mergedStr)
+					}
+				} else {
+					// 上传期间本地又有改动，跳过写回，稍后自动再同步一轮
+					scheduleAutoSync()
 				}
 			}
 			markSynced()
@@ -281,6 +287,63 @@ export function bindShareCode(code : string, done : (res : SyncResult) => void) 
 			done({ ok: true, message: '绑定成功' } as SyncResult)
 		})
 	})
+}
+
+/**
+ * 从服务器拉取共享绑定状态（绑定关系存在服务端，重装小程序后靠它恢复显示）。
+ */
+export function refreshShareInfo(done : (bound : boolean, code : string, msg : string) => void) : void {
+	const id = getCachedIdentity()
+	if (id == null) {
+		done(false, '', '未登录')
+		return
+	}
+	getJson('/api/share/info?openid=' + encodeURIComponent(id.openid) + '&token=' + encodeURIComponent(id.token), (status : number, data : UTSJSONObject | null, errMsg : string) => {
+		if (status === 401) {
+			clearIdentity()
+			done(false, '', '登录已失效')
+			return
+		}
+		if (status !== 200 || data == null) {
+			done(false, '', status === -1 ? '无法连接服务器：' + errMsg : serverError(data, status))
+			return
+		}
+		const bound = data.getBoolean('bound') == true
+		let code = data.getString('boundCode')
+		if (code == null) code = ''
+		if (bound && code.length > 0) {
+			uni.setStorageSync(BOUND_CODE_KEY, code)
+		} else if (!bound) {
+			uni.removeStorageSync(BOUND_CODE_KEY)
+		}
+		done(bound, code, 'ok')
+	})
+}
+
+/**
+ * 自动备份：数据保存后调用，3 秒防抖后静默同步到云端。
+ * 失败不打扰用户（下次保存或手动同步时会再试）。
+ */
+let autoSyncTimer : number = -1
+let autoSyncing : boolean = false
+
+export function scheduleAutoSync() : void {
+	if (autoSyncTimer >= 0) {
+		clearTimeout(autoSyncTimer)
+	}
+	autoSyncTimer = setTimeout(() => {
+		autoSyncTimer = -1
+		if (autoSyncing) {
+			// 上一轮还没结束，顺延
+			scheduleAutoSync()
+			return
+		}
+		autoSyncing = true
+		syncToCloud((res : SyncResult) => {
+			autoSyncing = false
+			console.log('[autoSync]', res.ok ? 'ok' : 'fail', res.message)
+		})
+	}, 3000)
 }
 
 /**

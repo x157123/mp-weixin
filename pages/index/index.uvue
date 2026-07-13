@@ -148,6 +148,7 @@
 <script setup lang="uts">
 	import { loadRecords, loadSettings, saveSettings, findSupplement, getCurrentBaby, FeedingRecord, Settings, Supplement, Baby } from '@/utils/db.uts'
 	import { getDateStr, getTimeStr, getStartOfDay, getEndOfDay, getWeekdayStr, getBabyAgeStr, getDaysFromBirth, pad2 } from '@/utils/format.uts'
+	import { scheduleAutoSync } from '@/utils/sync.uts'
 
 	const allRecords = ref<FeedingRecord[]>([] as FeedingRecord[])
 	const settings = ref<Settings>(loadSettings())
@@ -184,6 +185,7 @@
 				if (b.id !== settings.value.currentBabyId) {
 					settings.value.currentBabyId = b.id
 					saveSettings(settings.value)
+					scheduleAutoSync()
 					refresh()
 					uni.showToast({ title: '已切换到 ' + b.name, icon: 'success' })
 				}

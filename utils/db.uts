@@ -322,6 +322,20 @@ export function importData(jsonStr : string) : ImportResult {
 	}
 }
 
+// 本地数据指纹：同步期间用它判断数据有没有被用户改过
+export function dataFingerprint() : string {
+	const raw = uni.getStorageSync(STORAGE_KEY)
+	const rawS = uni.getStorageSync(SETTINGS_KEY)
+	const rawD = uni.getStorageSync(DELETED_KEY)
+	let s = ''
+	if (typeof raw === 'string') s += raw as string
+	s += '|'
+	if (typeof rawS === 'string') s += rawS as string
+	s += '|'
+	if (typeof rawD === 'string') s += rawD as string
+	return s
+}
+
 export function clearAllData() : void {
 	uni.removeStorageSync(STORAGE_KEY)
 	uni.removeStorageSync(SETTINGS_KEY)

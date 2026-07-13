@@ -147,8 +147,29 @@ def get_or_create_share_code(openid: str) -> str:
         return code
 
 
+def is_fresh_default_settings(s):
+    """判断 settings 是否是"刚装上还没配置过"的默认状态（重装小程序后的样子）"""
+    if not isinstance(s, dict):
+        return True
+    babies = s.get('babies') or []
+    if len(babies) != 1:
+        return False
+    b = babies[0] if isinstance(babies[0], dict) else {}
+    return (
+        b.get('name') == '宝宝'
+        and not b.get('birthday')
+        and not (s.get('parents') or [])
+        and len(s.get('supplements') or []) <= 1
+    )
+
+
 def merge_payload(old, new, now_ms):
-    """按记录 id 合并两份备份；deletedIds 为删除墓碑，settings 以本次上传为准"""
+    """按记录 id 合并两份备份；deletedIds 为删除墓碑。
+
+    settings 通常以本次上传为准；但若上传方是"重装后的默认设置"而云端已有
+    配置好的 settings，则保留云端的，避免重装后首次同步把宝宝列表冲掉。
+    此时上传方在默认宝宝名下新记的记录会重挂到云端当前宝宝。
+    """
     old = old if isinstance(old, dict) else {}
     deleted = set(old.get('deletedIds') or []) | set(new.get('deletedIds') or [])
     by_id = {}
@@ -162,11 +183,30 @@ def merge_payload(old, new, now_ms):
             by_id[rid] = r  # 同 id 以上传方为准（编辑过的记录）
     records = [r for rid, r in by_id.items() if rid not in deleted]
     records.sort(key=lambda r: r.get('timestamp') or 0, reverse=True)
+
+    old_settings = old.get('settings')
+    new_settings = new.get('settings')
+    settings = new_settings or old_settings
+    if (isinstance(old_settings, dict) and not is_fresh_default_settings(old_settings)
+            and is_fresh_default_settings(new_settings)):
+        settings = old_settings
+        if isinstance(new_settings, dict):
+            fresh_baby_ids = {b.get('id') for b in (new_settings.get('babies') or []) if isinstance(b, dict)}
+            kept_babies = old_settings.get('babies') or []
+            kept_ids = {b.get('id') for b in kept_babies if isinstance(b, dict)}
+            target = old_settings.get('currentBabyId')
+            if target not in kept_ids and kept_babies:
+                target = kept_babies[0].get('id')
+            if target:
+                for r in records:
+                    if r.get('babyId') in fresh_baby_ids:
+                        r['babyId'] = target
+
     return {
         'version': 2,
         'exportedAt': now_ms,
         'records': records,
-        'settings': new.get('settings') or old.get('settings'),
+        'settings': settings,
         'deletedIds': sorted(deleted),
     }
 

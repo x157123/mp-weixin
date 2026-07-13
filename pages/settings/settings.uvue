@@ -389,7 +389,7 @@
 <script setup lang="uts">
 	import { loadSettings, saveSettings, exportData, importData, deleteRecordsByBaby, Settings, ParentAccount, Supplement, Baby, genId } from '@/utils/db.uts'
 	import { getDateStr, getDateTimeStr, getBabyAgeStr } from '@/utils/format.uts'
-	import { getCachedIdentity, getLastSyncTime, getBoundShareCode, syncToCloud, restoreFromCloud, fetchMyShareCode, bindShareCode, unbindShareCode, SyncResult } from '@/utils/sync.uts'
+	import { getCachedIdentity, getLastSyncTime, getBoundShareCode, syncToCloud, restoreFromCloud, fetchMyShareCode, bindShareCode, unbindShareCode, refreshShareInfo, scheduleAutoSync, SyncResult } from '@/utils/sync.uts'
 
 	const iconPresets : string[] = ['💊', '🦠', '🌿', '🧬', '🍯', '🥛', '🟢', '⭐']
 	const colorPresets : string[] = ['#FFE4E6', '#FFF3CD', '#EAD9C9', '#D6E4F0', '#DCEDC8', '#E5DEFF']
@@ -415,6 +415,7 @@
 		if (b.id !== settings.value.currentBabyId) {
 			settings.value.currentBabyId = b.id
 			saveSettings(settings.value)
+			scheduleAutoSync()
 			dirty.value = false
 			uni.showToast({ title: '已切换到 ' + b.name, icon: 'success' })
 		}
@@ -473,6 +474,7 @@
 			settings.value.babies.push(b)
 		}
 		saveSettings(settings.value)
+		scheduleAutoSync()
 		showBabyModal.value = false
 		uni.showToast({ title: '已保存', icon: 'success' })
 	}
@@ -497,6 +499,7 @@
 						settings.value.babyBirthday = settings.value.babies[0].birthday
 					}
 					saveSettings(settings.value)
+					scheduleAutoSync()
 					showBabyModal.value = false
 					uni.showToast({ title: '已删除 ' + b.name + ' (含 ' + removedCount + ' 条记录)', icon: 'none' })
 				}
@@ -647,6 +650,7 @@
 
 	function onSave() : void {
 		saveSettings(settings.value)
+		scheduleAutoSync()
 		dirty.value = false
 		uni.showToast({ title: '已保存', icon: 'success' })
 	}
@@ -664,6 +668,15 @@
 		if (lastSyncTime.value > 0) return '上次同步：' + getDateTimeStr(lastSyncTime.value)
 		return '尚未同步，数据仅保存在本机'
 	})
+
+	// 绑定关系存在服务端，进页面时拉一次，修正重装后本地缓存丢失导致的显示不一致
+	if (getCachedIdentity() != null) {
+		refreshShareInfo((bound : boolean, code : string, msg : string) => {
+			if (msg === 'ok') {
+				boundCode.value = bound ? code : ''
+			}
+		})
+	}
 
 	function afterSync(res : SyncResult) : void {
 		syncing.value = false
@@ -851,6 +864,7 @@
 									if (result.ok) {
 										settings.value = loadSettings()
 										dirty.value = false
+										scheduleAutoSync()
 										uni.showToast({ title: '已导入 ' + result.recordCount + ' 条', icon: 'success' })
 									} else {
 										uni.showToast({ title: result.message, icon: 'none' })
