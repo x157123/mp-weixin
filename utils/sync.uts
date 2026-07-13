@@ -1,0 +1,313 @@
+import { exportData, importData, ImportResult } from './db.uts'
+
+/**
+ * 同步服务器地址。
+ * - 需要服务器上有反向代理（Nginx/Caddy）把 443 转发到本机 8300，并配好 SSL 证书
+ * - 开发调试可勾选「不校验合法域名」；正式发布需在小程序后台配置为 request 合法域名
+ */
+export const SYNC_BASE_URL = 'https://vmxjp.15712345.xyz'
+
+const OPENID_KEY = 'sync_openid_v1'
+const TOKEN_KEY = 'sync_token_v1'
+const LAST_SYNC_KEY = 'sync_last_time_v1'
+const BOUND_CODE_KEY = 'sync_bound_code_v1'
+
+export type SyncIdentity = {
+	openid : string
+	token : string
+}
+
+export type SyncResult = {
+	ok : boolean
+	message : string
+}
+
+export function getCachedIdentity() : SyncIdentity | null {
+	const openid = uni.getStorageSync(OPENID_KEY)
+	const token = uni.getStorageSync(TOKEN_KEY)
+	if (typeof openid === 'string' && typeof token === 'string') {
+		const o = openid as string
+		const t = token as string
+		if (o.length > 0 && t.length > 0) {
+			return { openid: o, token: t } as SyncIdentity
+		}
+	}
+	return null
+}
+
+export function clearIdentity() : void {
+	uni.removeStorageSync(OPENID_KEY)
+	uni.removeStorageSync(TOKEN_KEY)
+}
+
+export function getLastSyncTime() : number {
+	const v = uni.getStorageSync(LAST_SYNC_KEY)
+	if (typeof v === 'number') return v as number
+	return 0
+}
+
+function markSynced() : void {
+	uni.setStorageSync(LAST_SYNC_KEY, Date.now())
+}
+
+export function getBoundShareCode() : string {
+	const v = uni.getStorageSync(BOUND_CODE_KEY)
+	if (typeof v === 'string') return v as string
+	return ''
+}
+
+function serverError(data : UTSJSONObject | null, status : number) : string {
+	if (data != null) {
+		const e = data.getString('error')
+		if (e != null && e.length > 0) return e
+	}
+	return '服务器错误（HTTP ' + status.toString() + '）'
+}
+
+function postJson(path : string, body : UTSJSONObject, done : (status : number, data : UTSJSONObject | null, errMsg : string) => void) : void {
+	uni.request<UTSJSONObject>({
+		url: SYNC_BASE_URL + path,
+		method: 'POST',
+		timeout: 20000,
+		header: { 'content-type': 'application/json' } as UTSJSONObject,
+		data: body,
+		success: (res) => {
+			done(res.statusCode, res.data, '')
+		},
+		fail: (err) => {
+			done(-1, null, err.errMsg)
+		}
+	})
+}
+
+function getJson(pathWithQuery : string, done : (status : number, data : UTSJSONObject | null, errMsg : string) => void) : void {
+	uni.request<UTSJSONObject>({
+		url: SYNC_BASE_URL + pathWithQuery,
+		method: 'GET',
+		timeout: 20000,
+		success: (res) => {
+			done(res.statusCode, res.data, '')
+		},
+		fail: (err) => {
+			done(-1, null, err.errMsg)
+		}
+	})
+}
+
+function requestLogin(code : string, done : (id : SyncIdentity | null, msg : string) => void) : void {
+	postJson('/api/login', { code: code } as UTSJSONObject, (status : number, data : UTSJSONObject | null, errMsg : string) => {
+		if (status === -1) {
+			done(null, '无法连接服务器：' + errMsg)
+			return
+		}
+		if (status !== 200 || data == null) {
+			done(null, serverError(data, status))
+			return
+		}
+		const openid = data.getString('openid')
+		const token = data.getString('token')
+		if (openid == null || token == null) {
+			done(null, '登录响应异常')
+			return
+		}
+		uni.setStorageSync(OPENID_KEY, openid)
+		uni.setStorageSync(TOKEN_KEY, token)
+		done({ openid: openid, token: token } as SyncIdentity, 'ok')
+	})
+}
+
+export function ensureLogin(done : (id : SyncIdentity | null, msg : string) => void) : void {
+	const cached = getCachedIdentity()
+	if (cached != null) {
+		done(cached, 'ok')
+		return
+	}
+	uni.login({
+		provider: 'weixin',
+		success: (res) => {
+			requestLogin(res.code, done)
+		},
+		fail: (err) => {
+			done(null, '微信登录失败：' + err.errMsg)
+		}
+	})
+}
+
+/**
+ * 同步到云端：上传本机全量数据，服务器按记录 id 与云端（含家庭成员的）数据合并，
+ * 返回合并结果并写回本机，保证家庭成员之间数据一致。
+ */
+export function syncToCloud(done : (res : SyncResult) => void) : void {
+	ensureLogin((id : SyncIdentity | null, msg : string) => {
+		if (id == null) {
+			done({ ok: false, message: msg } as SyncResult)
+			return
+		}
+		const payloadStr = exportData()
+		postJson('/api/sync/upload', { openid: id.openid, token: id.token, payload: payloadStr } as UTSJSONObject, (status : number, data : UTSJSONObject | null, errMsg : string) => {
+			if (status === -1) {
+				done({ ok: false, message: '无法连接服务器：' + errMsg } as SyncResult)
+				return
+			}
+			if (status === 401) {
+				clearIdentity()
+				done({ ok: false, message: '登录已失效，请重试' } as SyncResult)
+				return
+			}
+			if (status !== 200 || data == null) {
+				done({ ok: false, message: serverError(data, status) } as SyncResult)
+				return
+			}
+			const merged = data.get('payload')
+			if (merged != null) {
+				const mergedStr = JSON.stringify(merged)
+				if (mergedStr != null) {
+					importData(mergedStr)
+				}
+			}
+			markSynced()
+			const count = data.getNumber('recordCount')
+			const countStr = count != null ? Math.round(count).toString() : '?'
+			done({ ok: true, message: '已同步，云端共 ' + countStr + ' 条' } as SyncResult)
+		})
+	})
+}
+
+/**
+ * 从云端恢复：用云端备份覆盖本机数据。
+ */
+export function restoreFromCloud(done : (res : SyncResult) => void) : void {
+	ensureLogin((id : SyncIdentity | null, msg : string) => {
+		if (id == null) {
+			done({ ok: false, message: msg } as SyncResult)
+			return
+		}
+		getJson('/api/sync/download?openid=' + encodeURIComponent(id.openid) + '&token=' + encodeURIComponent(id.token), (status : number, data : UTSJSONObject | null, errMsg : string) => {
+			if (status === -1) {
+				done({ ok: false, message: '无法连接服务器：' + errMsg } as SyncResult)
+				return
+			}
+			if (status === 401) {
+				clearIdentity()
+				done({ ok: false, message: '登录已失效，请重试' } as SyncResult)
+				return
+			}
+			if (status !== 200 || data == null) {
+				done({ ok: false, message: serverError(data, status) } as SyncResult)
+				return
+			}
+			if (data.getBoolean('found') != true) {
+				done({ ok: false, message: '云端暂无备份，请先同步' } as SyncResult)
+				return
+			}
+			const payload = data.get('payload')
+			if (payload == null) {
+				done({ ok: false, message: '云端数据异常' } as SyncResult)
+				return
+			}
+			const payloadStr = JSON.stringify(payload)
+			if (payloadStr == null) {
+				done({ ok: false, message: '云端数据异常' } as SyncResult)
+				return
+			}
+			const result : ImportResult = importData(payloadStr)
+			if (result.ok) {
+				markSynced()
+				done({ ok: true, message: '已恢复 ' + result.recordCount.toString() + ' 条记录' } as SyncResult)
+			} else {
+				done({ ok: false, message: result.message } as SyncResult)
+			}
+		})
+	})
+}
+
+/**
+ * 获取我的共享码（没有则由服务器生成），发给家人绑定后共同维护同一份数据。
+ */
+export function fetchMyShareCode(done : (code : string | null, msg : string) => void) : void {
+	ensureLogin((id : SyncIdentity | null, msg : string) => {
+		if (id == null) {
+			done(null, msg)
+			return
+		}
+		postJson('/api/share/code', { openid: id.openid, token: id.token } as UTSJSONObject, (status : number, data : UTSJSONObject | null, errMsg : string) => {
+			if (status === -1) {
+				done(null, '无法连接服务器：' + errMsg)
+				return
+			}
+			if (status === 401) {
+				clearIdentity()
+				done(null, '登录已失效，请重试')
+				return
+			}
+			if (status !== 200 || data == null) {
+				done(null, serverError(data, status))
+				return
+			}
+			const code = data.getString('code')
+			if (code == null || code.length === 0) {
+				done(null, '响应异常')
+				return
+			}
+			done(code, 'ok')
+		})
+	})
+}
+
+/**
+ * 绑定家人的共享码，之后本机的同步操作都指向对方的云端数据。
+ */
+export function bindShareCode(code : string, done : (res : SyncResult) => void) : void {
+	ensureLogin((id : SyncIdentity | null, msg : string) => {
+		if (id == null) {
+			done({ ok: false, message: msg } as SyncResult)
+			return
+		}
+		postJson('/api/share/bind', { openid: id.openid, token: id.token, shareCode: code } as UTSJSONObject, (status : number, data : UTSJSONObject | null, errMsg : string) => {
+			if (status === -1) {
+				done({ ok: false, message: '无法连接服务器：' + errMsg } as SyncResult)
+				return
+			}
+			if (status === 401) {
+				clearIdentity()
+				done({ ok: false, message: '登录已失效，请重试' } as SyncResult)
+				return
+			}
+			if (status !== 200 || data == null) {
+				done({ ok: false, message: serverError(data, status) } as SyncResult)
+				return
+			}
+			uni.setStorageSync(BOUND_CODE_KEY, code)
+			done({ ok: true, message: '绑定成功' } as SyncResult)
+		})
+	})
+}
+
+/**
+ * 解绑共享码，恢复使用自己的云端数据。
+ */
+export function unbindShareCode(done : (res : SyncResult) => void) : void {
+	ensureLogin((id : SyncIdentity | null, msg : string) => {
+		if (id == null) {
+			done({ ok: false, message: msg } as SyncResult)
+			return
+		}
+		postJson('/api/share/unbind', { openid: id.openid, token: id.token } as UTSJSONObject, (status : number, data : UTSJSONObject | null, errMsg : string) => {
+			if (status === -1) {
+				done({ ok: false, message: '无法连接服务器：' + errMsg } as SyncResult)
+				return
+			}
+			if (status === 401) {
+				clearIdentity()
+				done({ ok: false, message: '登录已失效，请重试' } as SyncResult)
+				return
+			}
+			if (status !== 200 || data == null) {
+				done({ ok: false, message: serverError(data, status) } as SyncResult)
+				return
+			}
+			uni.removeStorageSync(BOUND_CODE_KEY)
+			done({ ok: true, message: '已解绑' } as SyncResult)
+		})
+	})
+}

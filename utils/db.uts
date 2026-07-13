@@ -14,6 +14,34 @@ export type FeedingRecord = {
 }
 
 const STORAGE_KEY = 'feeding_records_v1'
+const DELETED_KEY = 'feeding_deleted_ids_v1'
+
+// 删除墓碑：记录被删除的 id，云端合并时用来避免已删记录被家庭成员的旧数据复活
+export function loadDeletedIds() : string[] {
+	const raw = uni.getStorageSync(DELETED_KEY)
+	if (typeof raw !== 'string' || raw.length === 0) {
+		return [] as string[]
+	}
+	try {
+		const parsed = JSON.parse(raw) as string[]
+		if (parsed == null) return [] as string[]
+		return parsed
+	} catch (e) {
+		return [] as string[]
+	}
+}
+
+export function saveDeletedIds(ids : string[]) : void {
+	uni.setStorageSync(DELETED_KEY, JSON.stringify(ids))
+}
+
+function markDeleted(id : string) : void {
+	const ids = loadDeletedIds()
+	if (ids.indexOf(id) < 0) {
+		ids.push(id)
+		saveDeletedIds(ids)
+	}
+}
 
 function migrateRecord(r : FeedingRecord, fallbackBabyId : string) : FeedingRecord {
 	if (r.supplementIds == null) r.supplementIds = [] as string[]
@@ -74,6 +102,7 @@ export function deleteRecord(id : string) : void {
 	const records = loadAllRecords()
 	const filtered = records.filter((r : FeedingRecord) : boolean => r.id !== id)
 	saveRecords(filtered)
+	markDeleted(id)
 }
 
 export function deleteRecordsByBaby(babyId : string) : number {
@@ -81,6 +110,9 @@ export function deleteRecordsByBaby(babyId : string) : number {
 	const kept = records.filter((r : FeedingRecord) : boolean => r.babyId !== babyId)
 	const removed = records.length - kept.length
 	saveRecords(kept)
+	records.forEach((r : FeedingRecord) => {
+		if (r.babyId === babyId) markDeleted(r.id)
+	})
 	return removed
 }
 
@@ -217,14 +249,16 @@ export type ExportPayload = {
 	exportedAt : number
 	records : FeedingRecord[]
 	settings : Settings
+	deletedIds : string[]
 }
 
 export function exportData() : string {
 	const payload : ExportPayload = {
-		version: 1,
+		version: 2,
 		exportedAt: Date.now(),
 		records: loadAllRecords(),
-		settings: loadSettings()
+		settings: loadSettings(),
+		deletedIds: loadDeletedIds()
 	}
 	return JSON.stringify(payload)
 }
@@ -277,6 +311,11 @@ export function importData(jsonStr : string) : ImportResult {
 		const fallbackId = loadSettings().currentBabyId
 		parsed.records.forEach((r : FeedingRecord) => { migrateRecord(r, fallbackId) })
 		saveRecords(parsed.records)
+		if (parsed.deletedIds != null) {
+			saveDeletedIds(parsed.deletedIds)
+		} else {
+			saveDeletedIds([] as string[])
+		}
 		return { ok: true, message: '导入成功', recordCount: parsed.records.length } as ImportResult
 	} catch (e) {
 		return { ok: false, message: 'JSON 格式错误', recordCount: 0 } as ImportResult
@@ -286,4 +325,5 @@ export function importData(jsonStr : string) : ImportResult {
 export function clearAllData() : void {
 	uni.removeStorageSync(STORAGE_KEY)
 	uni.removeStorageSync(SETTINGS_KEY)
+	uni.removeStorageSync(DELETED_KEY)
 }

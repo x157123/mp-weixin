@@ -133,12 +133,83 @@
 			<view class="card">
 				<view class="card-header">
 					<text class="card-title">数据同步</text>
+					<text class="card-counter">{{ syncBound ? '已绑定微信' : '未绑定' }}</text>
 				</view>
 				<view class="info-row">
 					<text class="info-icon">☁️</text>
 					<view class="info-text">
-						<text class="info-title">当前为本地存储</text>
-						<text class="info-sub">云端同步尚未启用，所有数据仅保存在本机</text>
+						<text class="info-title">微信云端备份</text>
+						<text class="info-sub">{{ syncStatusText }}</text>
+					</view>
+				</view>
+				<view class="hairline"></view>
+				<view class="cell" @click="onSyncUp">
+					<view class="cell-left">
+						<text class="cell-icon">🔄</text>
+						<view class="cell-text">
+							<text class="cell-title">同步到云端</text>
+							<text class="cell-sub">合并本机与云端数据后上传，家人的记录也会同步回来</text>
+						</view>
+					</view>
+					<view class="cell-right">
+						<text class="cell-arrow">›</text>
+					</view>
+				</view>
+				<view class="hairline"></view>
+				<view class="cell" @click="onRestoreFromCloud">
+					<view class="cell-left">
+						<text class="cell-icon">⬇️</text>
+						<view class="cell-text">
+							<text class="cell-title">从云端恢复</text>
+							<text class="cell-sub">用云端备份覆盖本机全部数据</text>
+						</view>
+					</view>
+					<view class="cell-right">
+						<text class="cell-arrow">›</text>
+					</view>
+				</view>
+			</view>
+
+			<view class="card">
+				<view class="card-header">
+					<text class="card-title">家庭共享</text>
+					<text class="card-counter">{{ boundCode.length > 0 ? '已绑定' : '' }}</text>
+				</view>
+				<view class="cell" @click="onShowMyCode">
+					<view class="cell-left">
+						<text class="cell-icon">🔑</text>
+						<view class="cell-text">
+							<text class="cell-title">我的共享码</text>
+							<text class="cell-sub">生成共享码发给家人，绑定后共同记录同一份数据</text>
+						</view>
+					</view>
+					<view class="cell-right">
+						<text class="cell-arrow">›</text>
+					</view>
+				</view>
+				<view class="hairline"></view>
+				<view class="cell" v-if="boundCode.length === 0" @click="onOpenBindModal">
+					<view class="cell-left">
+						<text class="cell-icon">🤝</text>
+						<view class="cell-text">
+							<text class="cell-title">绑定共享码</text>
+							<text class="cell-sub">输入家人的共享码，共同维护同一份数据</text>
+						</view>
+					</view>
+					<view class="cell-right">
+						<text class="cell-arrow">›</text>
+					</view>
+				</view>
+				<view class="cell" v-else @click="onUnbindShare">
+					<view class="cell-left">
+						<text class="cell-icon">🤝</text>
+						<view class="cell-text">
+							<text class="cell-title">已绑定共享码：{{ boundCode }}</text>
+							<text class="cell-sub">与家人共用同一份云端数据，点击可解绑</text>
+						</view>
+					</view>
+					<view class="cell-right">
+						<text class="cell-arrow">›</text>
 					</view>
 				</view>
 			</view>
@@ -288,12 +359,37 @@
 				</view>
 			</view>
 		</view>
+
+		<view class="modal-mask" v-if="showShareModal" @click="closeShareModal">
+			<view class="modal" @click.stop="noop">
+				<text class="modal-title">绑定共享码</text>
+
+				<view class="modal-field">
+					<text class="modal-label">家人的共享码</text>
+					<input class="modal-input" v-model="shareCodeInput" placeholder="如：A3F8KM" placeholder-style="color:#C0C4CC" maxlength="6" />
+				</view>
+
+				<view class="modal-field">
+					<text class="modal-label">绑定后，你们的喂养记录将合并为同一份云端数据，双方都可以查看和记录</text>
+				</view>
+
+				<view class="modal-actions">
+					<view class="modal-btn modal-btn-cancel" @click="closeShareModal">
+						<text class="modal-btn-cancel-text">取消</text>
+					</view>
+					<view class="modal-btn modal-btn-primary" @click="onBindShare">
+						<text class="modal-btn-primary-text">绑定</text>
+					</view>
+				</view>
+			</view>
+		</view>
 	</view>
 </template>
 
 <script setup lang="uts">
 	import { loadSettings, saveSettings, exportData, importData, deleteRecordsByBaby, Settings, ParentAccount, Supplement, Baby, genId } from '@/utils/db.uts'
-	import { getDateStr, getBabyAgeStr } from '@/utils/format.uts'
+	import { getDateStr, getDateTimeStr, getBabyAgeStr } from '@/utils/format.uts'
+	import { getCachedIdentity, getLastSyncTime, getBoundShareCode, syncToCloud, restoreFromCloud, fetchMyShareCode, bindShareCode, unbindShareCode, SyncResult } from '@/utils/sync.uts'
 
 	const iconPresets : string[] = ['💊', '🦠', '🌿', '🧬', '🍯', '🥛', '🟢', '⭐']
 	const colorPresets : string[] = ['#FFE4E6', '#FFF3CD', '#EAD9C9', '#D6E4F0', '#DCEDC8', '#E5DEFF']
@@ -553,6 +649,137 @@
 		saveSettings(settings.value)
 		dirty.value = false
 		uni.showToast({ title: '已保存', icon: 'success' })
+	}
+
+	// ---------------- 云端同步 / 家庭共享 ----------------
+
+	const lastSyncTime = ref<number>(getLastSyncTime())
+	const boundCode = ref<string>(getBoundShareCode())
+	const syncBound = ref<boolean>(getCachedIdentity() != null)
+	const syncing = ref<boolean>(false)
+	const showShareModal = ref<boolean>(false)
+	const shareCodeInput = ref<string>('')
+
+	const syncStatusText = computed<string>(() : string => {
+		if (lastSyncTime.value > 0) return '上次同步：' + getDateTimeStr(lastSyncTime.value)
+		return '尚未同步，数据仅保存在本机'
+	})
+
+	function afterSync(res : SyncResult) : void {
+		syncing.value = false
+		uni.hideLoading()
+		if (res.ok) {
+			settings.value = loadSettings()
+			lastSyncTime.value = getLastSyncTime()
+		}
+		syncBound.value = getCachedIdentity() != null
+		uni.showToast({ title: res.message, icon: res.ok ? 'success' : 'none' })
+	}
+
+	function onSyncUp() : void {
+		if (syncing.value) return
+		syncing.value = true
+		uni.showLoading({ title: '同步中…' })
+		syncToCloud((res : SyncResult) => { afterSync(res) })
+	}
+
+	function onRestoreFromCloud() : void {
+		if (syncing.value) return
+		uni.showModal({
+			title: '确认恢复',
+			content: '将用云端备份覆盖本机全部记录和设置，确定？',
+			success: (mres) => {
+				if (mres.confirm) {
+					syncing.value = true
+					uni.showLoading({ title: '恢复中…' })
+					restoreFromCloud((res : SyncResult) => { afterSync(res) })
+				}
+			}
+		})
+	}
+
+	function onShowMyCode() : void {
+		uni.showLoading({ title: '获取中…' })
+		fetchMyShareCode((code : string | null, msg : string) => {
+			uni.hideLoading()
+			syncBound.value = getCachedIdentity() != null
+			if (code == null || code.length === 0) {
+				uni.showToast({ title: msg, icon: 'none' })
+				return
+			}
+			const c : string = code
+			uni.showModal({
+				title: '我的共享码',
+				content: c + '\n\n把它发给家人，家人在「设置-家庭共享-绑定共享码」中输入后，即可共同记录',
+				confirmText: '复制',
+				success: (mres) => {
+					if (mres.confirm) {
+						uni.setClipboardData({
+							data: c,
+							success: () => {
+								uni.showToast({ title: '已复制', icon: 'success' })
+							}
+						})
+					}
+				}
+			})
+		})
+	}
+
+	function onOpenBindModal() : void {
+		shareCodeInput.value = ''
+		showShareModal.value = true
+	}
+
+	function closeShareModal() : void {
+		showShareModal.value = false
+	}
+
+	function onBindShare() : void {
+		const code = shareCodeInput.value.trim().toUpperCase()
+		if (code.length === 0) {
+			uni.showToast({ title: '请输入共享码', icon: 'none' })
+			return
+		}
+		uni.showLoading({ title: '绑定中…' })
+		bindShareCode(code, (res : SyncResult) => {
+			uni.hideLoading()
+			syncBound.value = getCachedIdentity() != null
+			if (res.ok) {
+				boundCode.value = code
+				showShareModal.value = false
+				uni.showModal({
+					title: '绑定成功',
+					content: '是否立即同步，把本机数据合并到家庭共享数据中？',
+					success: (mres) => {
+						if (mres.confirm) {
+							onSyncUp()
+						}
+					}
+				})
+			} else {
+				uni.showToast({ title: res.message, icon: 'none' })
+			}
+		})
+	}
+
+	function onUnbindShare() : void {
+		uni.showModal({
+			title: '提示',
+			content: '解绑后将恢复使用自己的云端数据（本机数据不受影响），确定解绑？',
+			success: (mres) => {
+				if (mres.confirm) {
+					uni.showLoading({ title: '解绑中…' })
+					unbindShareCode((res : SyncResult) => {
+						uni.hideLoading()
+						if (res.ok) {
+							boundCode.value = ''
+						}
+						uni.showToast({ title: res.message, icon: res.ok ? 'success' : 'none' })
+					})
+				}
+			}
+		})
 	}
 
 	function buildExportFileName() : string {
